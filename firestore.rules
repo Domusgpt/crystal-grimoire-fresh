@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Users can only access their own profile data
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      
+      // User's crystal collection
+      match /crystals/{crystalId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's dream journal  
+      match /dreams/{dreamId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's healing sessions
+      match /healingSessions/{sessionId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's rituals
+      match /rituals/{ritualId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's notifications
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+    
+    // Crystal database - read-only for authenticated users
+    match /crystal_database/{crystalId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin(); // Only admins can modify master database
+    }
+    
+    // Marketplace listings
+    match /marketplace/{listingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+        (request.auth.uid == resource.data.sellerId || isAdmin());
+    }
+    
+    // Moon data - readable by all authenticated users
+    match /moonData/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin(); // Auto-updated by cloud functions
+    }
+    
+    // Crystal identifications - user's own identification history
+    match /identifications/{identificationId} {
+      allow read, write: if isAuthenticated() && 
+        request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated();
+    }
+    
+    // Support tickets
+    match /supportTickets/{ticketId} {
+      allow read, write: if isAuthenticated() && 
+        request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated();
+    }
+    
+    // Admin collections - admin only
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId);
+      allow write: if isAdmin();
+    }
+    
+    match /analytics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // System notifications - readable by all
+    match /systemNotifications/{notificationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,54 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    // Users can upload to their own directory
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+      allow read: if isAuthenticated(); // Others can view profile images
+    }
+    
+    // Crystal identification images
+    match /identifications/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+    }
+    
+    // Marketplace listing images
+    match /marketplace/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated(); // Anyone can view marketplace images
+      allow write: if isOwner(userId);
+    }
+    
+    // Master crystal database images - public read, admin write
+    match /crystals/{allPaths=**} {
+      allow read: if true; // Public read for crystal reference images
+      allow write: if isAdmin();
+    }
+    
+    // Sound bath audio files - accessible to authenticated users
+    match /audio/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // App assets - public read
+    match /assets/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
