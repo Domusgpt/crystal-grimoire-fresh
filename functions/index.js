@@ -15,15 +15,16 @@ import Stripe from 'stripe';
 import cors from 'cors';
 import { z } from 'zod';
 import sharp from 'sharp';
+import { calculateMoonPhase } from './utils/moon.js';
 
 // Initialize Firebase Admin
 initializeApp();
 const db = getFirestore();
-const storage = getStorage();
+const _storage = getStorage();
 
 // Initialize AI services
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+const _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 const visionClient = new vision.ImageAnnotatorClient();
 
 // Initialize Stripe
@@ -61,8 +62,12 @@ export const identifyCrystal = onCall(
   async (request) => {
     try {
       const { data } = request;
-      const { imageData, includeMetaphysical, includeHealing, includeCare } =
-        crystalIdentificationSchema.parse(data);
+      const {
+        imageData,
+        includeMetaphysical: _includeMetaphysical,
+        includeHealing: _includeHealing,
+        includeCare: _includeCare,
+      } = crystalIdentificationSchema.parse(data);
 
       console.log('🔍 Starting crystal identification...');
 
@@ -263,7 +268,7 @@ export const getMoonRituals = onCall(
   { cors: true, timeoutSeconds: 20 },
   async (request) => {
     try {
-      const { moonPhase, userCrystals, userProfile } = request.data;
+      const { moonPhase, userCrystals: _userCrystals, userProfile } = request.data;
 
       if (!request.auth) {
         throw new HttpsError('unauthenticated', 'Authentication required');
@@ -567,76 +572,6 @@ export const updateMoonPhase = onSchedule(
     console.log(`✅ Updated moon phase: ${moonData.phase}`);
   }
 );
-
-/**
- * 🧮 HELPER FUNCTIONS
- */
-
-function calculateMoonPhase() {
-  const now = new Date();
-  const knownNewMoon = new Date('2024-01-11T11:57:00Z');
-  const lunarCycle = 29.530589; // days
-  
-  const daysSince = (now.getTime() - knownNewMoon.getTime()) / (1000 * 60 * 60 * 24);
-  const currentCycle = (daysSince % lunarCycle) / lunarCycle;
-  
-  let phase, emoji, illumination;
-  
-  if (currentCycle < 0.0625) {
-    phase = 'New Moon';
-    emoji = '🌑';
-    illumination = 0;
-  } else if (currentCycle < 0.1875) {
-    phase = 'Waxing Crescent';
-    emoji = '🌒';
-    illumination = 0.25;
-  } else if (currentCycle < 0.3125) {
-    phase = 'First Quarter';
-    emoji = '🌓';
-    illumination = 0.5;
-  } else if (currentCycle < 0.4375) {
-    phase = 'Waxing Gibbous';
-    emoji = '🌔';
-    illumination = 0.75;
-  } else if (currentCycle < 0.5625) {
-    phase = 'Full Moon';
-    emoji = '🌕';
-    illumination = 1.0;
-  } else if (currentCycle < 0.6875) {
-    phase = 'Waning Gibbous';
-    emoji = '🌖';
-    illumination = 0.75;
-  } else if (currentCycle < 0.8125) {
-    phase = 'Last Quarter';
-    emoji = '🌗';
-    illumination = 0.5;
-  } else {
-    phase = 'Waning Crescent';
-    emoji = '🌘';
-    illumination = 0.25;
-  }
-  
-  return {
-    phase,
-    emoji,
-    illumination,
-    timestamp: now.toISOString(),
-    nextFullMoon: calculateNextPhase(0.5, currentCycle, now, lunarCycle),
-    nextNewMoon: calculateNextPhase(0.0, currentCycle, now, lunarCycle),
-  };
-}
-
-function calculateNextPhase(targetPhase, currentPhase, now, lunarCycle) {
-  let daysUntil;
-  if (targetPhase >= currentPhase) {
-    daysUntil = (targetPhase - currentPhase) * lunarCycle;
-  } else {
-    daysUntil = (1 - currentPhase + targetPhase) * lunarCycle;
-  }
-  
-  const nextPhaseDate = new Date(now.getTime() + (daysUntil * 24 * 60 * 60 * 1000));
-  return nextPhaseDate.toISOString();
-}
 
 // Health check endpoint
 export const healthCheck = onRequest({ cors: true }, (req, res) => {
