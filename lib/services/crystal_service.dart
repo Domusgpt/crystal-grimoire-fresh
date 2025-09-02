@@ -38,7 +38,8 @@ class CrystalService extends ChangeNotifier {
       });
       
       final data = result.data as Map<String, dynamic>;
-      
+      final meta = data['metaphysical_properties'] as Map<String, dynamic>?;
+
       // Create Crystal object from result
       _lastIdentifiedCrystal = Crystal(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -46,21 +47,16 @@ class CrystalService extends ChangeNotifier {
         scientificName: data['identification']['scientific_name'] ?? '',
         variety: data['identification']['variety'] ?? '',
         imageUrl: data['imageUrl'] ?? '',
-        metaphysicalProperties: data['metaphysical_properties'] ?? {},
+        metaphysicalProperties: meta ?? {},
         physicalProperties: data['physical_properties'] ?? {},
         careInstructions: data['care_instructions'] ?? {},
-        healingProperties: List<String>.from(
-          data['metaphysical_properties']['healing_properties'] ?? []
-        ),
-        chakras: List<String>.from(
-          data['metaphysical_properties']['primary_chakras'] ?? []
-        ),
-        zodiacSigns: List<String>.from(
-          data['metaphysical_properties']['zodiac_signs'] ?? []
-        ),
-        elements: List<String>.from(
-          data['metaphysical_properties']['elements'] ?? []
-        ),
+        healingProperties:
+            List<String>.from(meta?['healing_properties'] ?? const []),
+        chakras:
+            List<String>.from(meta?['primary_chakras'] ?? const []),
+        zodiacSigns:
+            List<String>.from(meta?['zodiac_signs'] ?? const []),
+        elements: List<String>.from(meta?['elements'] ?? const []),
         description: data['description'] ?? '',
       );
       

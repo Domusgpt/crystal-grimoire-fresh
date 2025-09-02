@@ -53,7 +53,7 @@ class UserProfile {
   static Map<String, dynamic> _defaultStats() {
     return {
       'crystalsIdentified': 0,
-      'collectionsSize': 0,
+      'collectionSize': 0,
       'healingSessions': 0,
       'meditationMinutes': 0,
       'journalEntries': 0,

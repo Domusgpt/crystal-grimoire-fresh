@@ -96,7 +96,7 @@ cd functions && npm install && cd ..
 
 # 4. Configure Firebase
 firebase login
-firebase use crystal-grimoire-2025  # Your project ID
+firebase use crystalgrimoire-production  # Your project ID
 
 # 5. Set environment variables
 cp .env.example .env
