@@ -1,0 +1,8 @@
+{
+  "name": "crystal-grimoire",
+  "private": true,
+  "scripts": {
+    "lint": "npm --prefix functions run lint",
+    "test": "npm --prefix functions test"
+  }
+}

@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/firebase_service.dart';
+import 'firebase_options.dart';
 import 'services/crystal_service.dart';
 import 'services/auth_service.dart';
 import 'screens/home_screen.dart';
@@ -12,15 +13,7 @@ import 'theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
-    options: const FirebaseOptions(
-      apiKey: "AIzaSyCfaw8I-rwXu8j0El340yIGr-N2agTzp6c",
-      authDomain: "crystalgrimoire-production.firebaseapp.com",
-      projectId: "crystalgrimoire-production",
-      storageBucket: "crystalgrimoire-production.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID",
-      measurementId: "YOUR_MEASUREMENT_ID"
-    ),
+    options: DefaultFirebaseOptions.currentPlatform,
   );
   
   runApp(const CrystalGrimoireApp());
@@ -35,7 +28,7 @@ class CrystalGrimoireApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => CrystalService()),
-        ChangeNotifierProvider(create: (_) => FirebaseService()),
+        ChangeNotifierProvider(create: (_) => FirebaseService()..initialize()),
       ],
       child: MaterialApp(
         title: 'Crystal Grimoire',
