@@ -1,0 +1,27 @@
+{
+  "name": "crystal-grimoire-fresh",
+  "version": "1.0.0",
+  "description": "**AI-Powered Crystal Identification & Mystical Guidance Platform**",
+  "main": "test_vertex_ai.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Domusgpt/crystal-grimoire-fresh.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Domusgpt/crystal-grimoire-fresh/issues"
+  },
+  "homepage": "https://github.com/Domusgpt/crystal-grimoire-fresh#readme",
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.10.0"
+  }
+}
