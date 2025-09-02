@@ -12,6 +12,7 @@ class AppTheme {
   static const Color crystalGlow = Color(0xFFE0AAFF);
   static const Color mysticPink = Color(0xFFC77DFF);
   static const Color cosmicPurple = Color(0xFF9D4EDD);
+  static const Color mysticalPurple = Color(0xFF6D28D9);
   
   // Holographic colors from visual_codex
   static const Color holoBlue = Color(0xFF00FFFF);
@@ -114,7 +115,7 @@ class AppTheme {
       ),
       
       // Card theme with glassmorphism
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white.withOpacity(0.1),
         elevation: 0,
         shape: RoundedRectangleBorder(

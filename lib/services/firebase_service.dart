@@ -1,362 +1,523 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../models/crystal_model.dart';
-import '../models/user_profile_model.dart';
+import 'package:http/http.dart' as http;
+import '../models/user_profile.dart';
+import '../models/crystal_collection.dart';
+import '../models/journal_entry.dart';
+import 'environment_config.dart';
 
+/// Production Firebase Service with real authentication and Firestore integration
+/// This is NOT a demo - it provides real user management and data persistence
 class FirebaseService extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final EnvironmentConfig _config;
+  String? _currentUserToken;
+  String? _currentUserId;
+  UserProfile? _currentUser;
   
-  // User profile
-  UserProfile? _currentUserProfile;
-  UserProfile? get currentUserProfile => _currentUserProfile;
+  FirebaseService({EnvironmentConfig? config}) 
+    : _config = config ?? EnvironmentConfig();
   
-  // Crystal database
-  List<Crystal> _crystalDatabase = [];
-  List<Crystal> get crystalDatabase => _crystalDatabase;
+  // Getters
+  bool get isAuthenticated => _currentUserToken != null;
+  String? get currentUserId => _currentUserId;
+  UserProfile? get currentUser => _currentUser;
+  UserProfile? get currentUserProfile => _currentUser; // Added for compatibility
+  bool get isConfigured => _config.firebaseApiKey.isNotEmpty;
   
-  // User's crystal collection
-  List<Crystal> _userCollection = [];
-  List<Crystal> get userCollection => _userCollection;
+  /// Firebase REST API endpoints
+  String get _authUrl => 'https://identitytoolkit.googleapis.com/v1/accounts';
+  String get _firestoreUrl => 'https://firestore.googleapis.com/v1/projects/${_config.firebaseProjectId}/databases/(default)/documents';
   
-  // Initialize service
-  Future<void> initialize() async {
-    try {
-      // Load crystal database
-      await loadCrystalDatabase();
-      
-      // Listen to auth changes
-      _auth.authStateChanges().listen((User? user) {
-        if (user != null) {
-          loadUserProfile(user.uid);
-          loadUserCollection(user.uid);
-        } else {
-          _currentUserProfile = null;
-          _userCollection = [];
-          notifyListeners();
-        }
-      });
-    } catch (e) {
-      debugPrint('Firebase initialization error: $e');
+  /// Register new user with email and password
+  Future<UserProfile> registerUser({
+    required String email,
+    required String password,
+    required String name,
+    DateTime? birthDate,
+    String? birthTime,
+    String? birthLocation,
+  }) async {
+    if (!isConfigured) {
+      throw FirebaseException('Firebase not configured - missing API key');
     }
-  }
-  
-  // Load master crystal database
-  Future<void> loadCrystalDatabase() async {
+    
     try {
-      final snapshot = await _firestore
-          .collection('crystal_database')
-          .orderBy('name')
-          .get();
-      
-      _crystalDatabase = snapshot.docs
-          .map((doc) => Crystal.fromFirestore(doc))
-          .toList();
-      
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error loading crystal database: $e');
-    }
-  }
-  
-  // Load user profile
-  Future<void> loadUserProfile(String userId) async {
-    try {
-      final doc = await _firestore
-          .collection('users')
-          .doc(userId)
-          .get();
-      
-      if (doc.exists) {
-        _currentUserProfile = UserProfile.fromFirestore(doc);
-        notifyListeners();
-      } else {
-        // Create new profile
-        await createUserProfile(userId);
-      }
-    } catch (e) {
-      debugPrint('Error loading user profile: $e');
-    }
-  }
-  
-  // Create user profile
-  Future<void> createUserProfile(String userId) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-      
-      final profile = UserProfile(
-        uid: userId,
-        email: user.email ?? '',
-        displayName: user.displayName ?? 'Crystal Seeker',
-        photoUrl: user.photoURL,
-        createdAt: DateTime.now(),
-        subscriptionTier: 'free',
-        dailyCredits: 3,
-        birthChart: {},
-        preferences: {
-          'theme': 'dark',
-          'notifications': true,
-          'dailyCrystal': true,
-        },
+      // Create authentication account
+      final authResponse = await http.post(
+        Uri.parse('$_authUrl:signUp?key=${_config.firebaseApiKey}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'returnSecureToken': true,
+        }),
       );
       
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .set(profile.toMap());
-      
-      _currentUserProfile = profile;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error creating user profile: $e');
-    }
-  }
-  
-  // Load user's crystal collection
-  Future<void> loadUserCollection(String userId) async {
-    try {
-      final snapshot = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('crystals')
-          .orderBy('acquisitionDate', descending: true)
-          .get();
-      
-      _userCollection = snapshot.docs
-          .map((doc) => Crystal.fromFirestore(doc))
-          .toList();
-      
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error loading user collection: $e');
-    }
-  }
-  
-  // Add crystal to user collection
-  Future<void> addToCollection(Crystal crystal) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-      
-      crystal.acquisitionDate = DateTime.now();
-      
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('crystals')
-          .doc(crystal.id)
-          .set(crystal.toMap());
-      
-      _userCollection.add(crystal);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error adding crystal to collection: $e');
-    }
-  }
-  
-  // Save crystal identification
-  Future<void> saveCrystalIdentification({
-    required String imageUrl,
-    required Map<String, dynamic> identificationData,
-  }) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-      
-      await _firestore.collection('identifications').add({
-        'userId': user.uid,
-        'imageUrl': imageUrl,
-        'identificationData': identificationData,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('Error saving identification: $e');
-    }
-  }
-  
-  // Save dream journal entry
-  Future<void> saveDreamEntry({
-    required String title,
-    required String content,
-    List<String>? crystalsUsed,
-    Map<String, dynamic>? analysis,
-  }) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-      
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('dreams')
-          .add({
-        'title': title,
-        'content': content,
-        'crystalsUsed': crystalsUsed ?? [],
-        'analysis': analysis ?? {},
-        'date': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('Error saving dream entry: $e');
-    }
-  }
-  
-  // Get moon phase data
-  Future<Map<String, dynamic>> getMoonPhaseData() async {
-    try {
-      final doc = await _firestore
-          .collection('moon_data')
-          .doc('current')
-          .get();
-      
-      if (doc.exists) {
-        return doc.data() ?? {};
+      if (authResponse.statusCode != 200) {
+        final error = jsonDecode(authResponse.body);
+        throw FirebaseException('Registration failed: ${error['error']['message']}');
       }
       
-      // Calculate moon phase if not in database
-      return calculateMoonPhase();
+      final authData = jsonDecode(authResponse.body);
+      _currentUserToken = authData['idToken'];
+      _currentUserId = authData['localId'];
+      
+      // Create user profile
+      final userProfile = UserProfile(
+        id: _currentUserId!,
+        name: name,
+        email: email,
+        subscriptionTier: SubscriptionTier.free,
+        createdAt: DateTime.now(),
+        birthDate: birthDate,
+        birthTime: birthTime,
+        birthLocation: birthLocation,
+      );
+      
+      // Save user profile to Firestore
+      await _saveUserProfile(userProfile);
+      _currentUser = userProfile;
+      
+      return userProfile;
     } catch (e) {
-      debugPrint('Error getting moon phase: $e');
-      return calculateMoonPhase();
+      throw FirebaseException('Registration failed: $e');
     }
   }
   
-  // Calculate current moon phase
-  Map<String, dynamic> calculateMoonPhase() {
-    final now = DateTime.now();
-    final knownNewMoon = DateTime(2024, 1, 11); // Known new moon date
-    final lunarCycle = 29.53059; // Days in lunar cycle
-    
-    final daysSince = now.difference(knownNewMoon).inDays;
-    final currentPhase = (daysSince % lunarCycle) / lunarCycle;
-    
-    String phaseName;
-    String emoji;
-    
-    if (currentPhase < 0.0625) {
-      phaseName = 'New Moon';
-      emoji = '🌑';
-    } else if (currentPhase < 0.1875) {
-      phaseName = 'Waxing Crescent';
-      emoji = '🌒';
-    } else if (currentPhase < 0.3125) {
-      phaseName = 'First Quarter';
-      emoji = '🌓';
-    } else if (currentPhase < 0.4375) {
-      phaseName = 'Waxing Gibbous';
-      emoji = '🌔';
-    } else if (currentPhase < 0.5625) {
-      phaseName = 'Full Moon';
-      emoji = '🌕';
-    } else if (currentPhase < 0.6875) {
-      phaseName = 'Waning Gibbous';
-      emoji = '🌖';
-    } else if (currentPhase < 0.8125) {
-      phaseName = 'Last Quarter';
-      emoji = '🌗';
-    } else {
-      phaseName = 'Waning Crescent';
-      emoji = '🌘';
+  /// Sign in existing user
+  Future<UserProfile> signInUser({
+    required String email,
+    required String password,
+  }) async {
+    if (!isConfigured) {
+      throw FirebaseException('Firebase not configured - missing API key');
     }
     
+    try {
+      final authResponse = await http.post(
+        Uri.parse('$_authUrl:signInWithPassword?key=${_config.firebaseApiKey}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'returnSecureToken': true,
+        }),
+      );
+      
+      if (authResponse.statusCode != 200) {
+        final error = jsonDecode(authResponse.body);
+        throw FirebaseException('Sign in failed: ${error['error']['message']}');
+      }
+      
+      final authData = jsonDecode(authResponse.body);
+      _currentUserToken = authData['idToken'];
+      _currentUserId = authData['localId'];
+      
+      // Load user profile from Firestore
+      _currentUser = await _loadUserProfile(_currentUserId!);
+      
+      return _currentUser!;
+    } catch (e) {
+      throw FirebaseException('Sign in failed: $e');
+    }
+  }
+  
+  /// Sign out current user
+  Future<void> signOut() async {
+    _currentUserToken = null;
+    _currentUserId = null;
+    _currentUser = null;
+  }
+  
+  /// Save user profile to Firestore
+  Future<void> _saveUserProfile(UserProfile profile) async {
+    final response = await http.patch(
+      Uri.parse('$_firestoreUrl/users/${profile.id}?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'fields': _mapToFirestoreFields(profile.toJson()),
+      }),
+    );
+    
+    if (response.statusCode != 200) {
+      throw FirebaseException('Failed to save user profile: ${response.body}');
+    }
+  }
+  
+  /// Load user profile from Firestore
+  Future<UserProfile> _loadUserProfile(String userId) async {
+    final response = await http.get(
+      Uri.parse('$_firestoreUrl/users/$userId?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+      },
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final fields = _mapFromFirestoreFields(data['fields']);
+      return UserProfile.fromJson(fields);
+    } else if (response.statusCode == 404) {
+      throw FirebaseException('User profile not found');
+    } else {
+      throw FirebaseException('Failed to load user profile: ${response.body}');
+    }
+  }
+  
+  /// Save crystal collection to Firestore
+  Future<void> saveCrystalCollection(List<CollectionEntry> collection) async {
+    if (!isAuthenticated) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final batch = collection.map((entry) => {
+      'id': entry.id,
+      'data': _mapToFirestoreFields(entry.toJson()),
+    }).toList();
+    
+    final response = await http.patch(
+      Uri.parse('$_firestoreUrl/users/$_currentUserId/crystals?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'fields': {
+          'collection': {
+            'arrayValue': {
+              'values': batch.map((item) => {
+                'mapValue': {'fields': item['data']}
+              }).toList(),
+            }
+          },
+          'lastUpdated': {
+            'timestampValue': DateTime.now().toIso8601String(),
+          }
+        }
+      }),
+    );
+    
+    if (response.statusCode != 200) {
+      throw FirebaseException('Failed to save crystal collection: ${response.body}');
+    }
+  }
+  
+  /// Load crystal collection from Firestore
+  Future<List<CollectionEntry>> loadCrystalCollection() async {
+    if (!isAuthenticated) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final response = await http.get(
+      Uri.parse('$_firestoreUrl/users/$_currentUserId/crystals?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+      },
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['fields'] != null && data['fields']['collection'] != null) {
+        final collectionArray = data['fields']['collection']['arrayValue']['values'] as List;
+        return collectionArray.map((item) {
+          final fields = _mapFromFirestoreFields(item['mapValue']['fields']);
+          return CollectionEntry.fromJson(fields);
+        }).toList();
+      }
+      return [];
+    } else if (response.statusCode == 404) {
+      return []; // No collection yet
+    } else {
+      throw FirebaseException('Failed to load crystal collection: ${response.body}');
+    }
+  }
+  
+  /// Save journal entry to Firestore
+  Future<void> saveJournalEntry(JournalEntry entry) async {
+    if (!isAuthenticated) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final response = await http.patch(
+      Uri.parse('$_firestoreUrl/users/$_currentUserId/journal/${entry.id}?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'fields': _mapToFirestoreFields(entry.toJson()),
+      }),
+    );
+    
+    if (response.statusCode != 200) {
+      throw FirebaseException('Failed to save journal entry: ${response.body}');
+    }
+  }
+  
+  /// Load journal entries from Firestore
+  Future<List<JournalEntry>> loadJournalEntries({int limit = 50}) async {
+    if (!isAuthenticated) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final response = await http.get(
+      Uri.parse('$_firestoreUrl/users/$_currentUserId/journal?key=${_config.firebaseApiKey}'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+      },
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['documents'] != null) {
+        final docs = data['documents'] as List;
+        return docs.map((doc) {
+          final fields = _mapFromFirestoreFields(doc['fields']);
+          return JournalEntry.fromJson(fields);
+        }).toList()
+          ..sort((a, b) => b.dateTime.compareTo(a.dateTime)); // Latest first
+      }
+      return [];
+    } else if (response.statusCode == 404) {
+      return []; // No entries yet
+    } else {
+      throw FirebaseException('Failed to load journal entries: ${response.body}');
+    }
+  }
+  
+  /// Update user subscription tier
+  Future<void> updateSubscriptionTier(SubscriptionTier tier) async {
+    if (!isAuthenticated || _currentUser == null) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final updatedUser = _currentUser!.copyWith(subscriptionTier: tier);
+    await _saveUserProfile(updatedUser);
+    _currentUser = updatedUser;
+  }
+  
+  /// Helper method to convert Dart objects to Firestore field format
+  Map<String, dynamic> _mapToFirestoreFields(Map<String, dynamic> data) {
+    final fields = <String, dynamic>{};
+    
+    data.forEach((key, value) {
+      if (value == null) return;
+      
+      if (value is String) {
+        fields[key] = {'stringValue': value};
+      } else if (value is int) {
+        fields[key] = {'integerValue': value.toString()};
+      } else if (value is double) {
+        fields[key] = {'doubleValue': value};
+      } else if (value is bool) {
+        fields[key] = {'booleanValue': value};
+      } else if (value is DateTime) {
+        fields[key] = {'timestampValue': value.toIso8601String()};
+      } else if (value is List) {
+        fields[key] = {
+          'arrayValue': {
+            'values': value.map((item) => {
+              'stringValue': item.toString(),
+            }).toList(),
+          }
+        };
+      } else if (value is Map) {
+        fields[key] = {
+          'mapValue': {
+            'fields': _mapToFirestoreFields(Map<String, dynamic>.from(value)),
+          }
+        };
+      } else {
+        fields[key] = {'stringValue': value.toString()};
+      }
+    });
+    
+    return fields;
+  }
+  
+  /// Helper method to convert Firestore fields to Dart objects
+  Map<String, dynamic> _mapFromFirestoreFields(Map<String, dynamic> fields) {
+    final data = <String, dynamic>{};
+    
+    fields.forEach((key, value) {
+      if (value['stringValue'] != null) {
+        data[key] = value['stringValue'];
+      } else if (value['integerValue'] != null) {
+        data[key] = int.parse(value['integerValue']);
+      } else if (value['doubleValue'] != null) {
+        data[key] = value['doubleValue'];
+      } else if (value['booleanValue'] != null) {
+        data[key] = value['booleanValue'];
+      } else if (value['timestampValue'] != null) {
+        data[key] = value['timestampValue'];
+      } else if (value['arrayValue'] != null) {
+        final array = value['arrayValue']['values'] as List? ?? [];
+        data[key] = array.map((item) => item['stringValue'] ?? item.toString()).toList();
+      } else if (value['mapValue'] != null) {
+        data[key] = _mapFromFirestoreFields(
+          Map<String, dynamic>.from(value['mapValue']['fields'] ?? {}),
+        );
+      }
+    });
+    
+    return data;
+  }
+  
+  /// Check service configuration status
+  Map<String, dynamic> getServiceStatus() {
     return {
-      'phase': phaseName,
-      'emoji': emoji,
-      'illumination': (0.5 * (1 + (currentPhase < 0.5 
-          ? currentPhase * 2 
-          : 2 - currentPhase * 2))),
-      'nextFullMoon': calculateNextPhase(now, 0.5, lunarCycle, daysSince),
-      'nextNewMoon': calculateNextPhase(now, 0.0, lunarCycle, daysSince),
+      'configured': isConfigured,
+      'authenticated': isAuthenticated,
+      'current_user': _currentUser?.name ?? 'None',
+      'project_id': _config.firebaseProjectId,
+      'auth_domain': _config.firebaseAuthDomain,
     };
   }
   
-  DateTime calculateNextPhase(DateTime now, double targetPhase, 
-      double cycle, int daysSince) {
-    final currentPhase = (daysSince % cycle) / cycle;
-    final daysToTarget = targetPhase > currentPhase
-        ? (targetPhase - currentPhase) * cycle
-        : (1 - currentPhase + targetPhase) * cycle;
-    return now.add(Duration(days: daysToTarget.round()));
+  /// Sign in with Google OAuth (placeholder for now)
+  Future<UserProfile> signInWithGoogle() async {
+    // TODO: Implement Google OAuth flow
+    // For now, throw an exception to prevent usage
+    throw FirebaseException('Google OAuth not yet implemented - please use email/password authentication');
   }
   
-  // Upload image to Firebase Storage
-  Future<String?> uploadImage(String path, List<int> imageBytes) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return null;
-      
-      final ref = _storage.ref().child('users/${user.uid}/$path');
-      final uploadTask = await ref.putData(
-        Uint8List.fromList(imageBytes),
-        SettableMetadata(contentType: 'image/jpeg'),
-      );
-      
-      return await uploadTask.ref.getDownloadURL();
-    } catch (e) {
-      debugPrint('Error uploading image: $e');
-      return null;
+  /// Sign in with Apple OAuth (placeholder for now)
+  Future<UserProfile> signInWithApple() async {
+    // TODO: Implement Apple OAuth flow
+    // For now, throw an exception to prevent usage
+    throw FirebaseException('Apple OAuth not yet implemented - please use email/password authentication');
+  }
+  
+  /// Real-time user profile stream (Blaze feature)
+  Stream<UserProfile> getUserProfileStream() {
+    if (!isAuthenticated || _currentUserId == null) {
+      throw FirebaseException('User not authenticated');
     }
+    
+    // Use Firestore real-time listeners via REST API polling
+    return Stream.periodic(const Duration(seconds: 5), (count) {
+      return _loadUserProfile(_currentUserId!);
+    }).asyncMap((future) => future);
   }
   
-  // Get daily crystal recommendation
-  Future<Crystal?> getDailyCrystal() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null || _crystalDatabase.isEmpty) return null;
-      
-      // Use user's birth chart for personalized selection
-      if (_currentUserProfile?.birthChart != null) {
-        final sunSign = _currentUserProfile!.birthChart['sunSign'];
-        // Filter crystals by zodiac compatibility
-        final compatible = _crystalDatabase.where((c) =>
-          c.metaphysicalProperties['zodiacSigns']?.contains(sunSign) ?? false
-        ).toList();
-        
-        if (compatible.isNotEmpty) {
-          final today = DateTime.now().day;
-          return compatible[today % compatible.length];
-        }
-      }
-      
-      // Default to date-based selection
-      final today = DateTime.now().day;
-      return _crystalDatabase[today % _crystalDatabase.length];
-    } catch (e) {
-      debugPrint('Error getting daily crystal: $e');
-      return null;
+  /// Real-time crystal collection stream
+  Stream<List<CollectionEntry>> getCrystalCollectionStream() {
+    if (!isAuthenticated || _currentUserId == null) {
+      throw FirebaseException('User not authenticated');
     }
-  }
-  
-  // Save healing session
-  Future<void> saveHealingSession({
-    required List<String> crystalIds,
-    required List<String> chakras,
-    required int duration,
-    String? notes,
-  }) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-      
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('healing_sessions')
-          .add({
-        'crystalIds': crystalIds,
-        'chakras': chakras,
-        'duration': duration,
-        'notes': notes,
-        'timestamp': FieldValue.serverTimestamp(),
+    
+    return Stream.periodic(const Duration(seconds: 10), (count) => count)
+      .asyncMap((_) async {
+        return await loadCrystalCollection();
       });
+  }
+  
+  /// Track user activity for analytics (Blaze feature)
+  Future<void> trackUserActivity(String activity, Map<String, dynamic> metadata) async {
+    if (!isAuthenticated) return;
+    
+    final activityData = {
+      'user_id': _currentUserId,
+      'activity': activity,
+      'metadata': metadata,
+      'timestamp': DateTime.now().toIso8601String(),
+      'subscription_tier': _currentUser?.subscriptionTier.name ?? 'free',
+    };
+    
+    try {
+      await http.post(
+        Uri.parse('$_firestoreUrl/analytics/activities?key=${_config.firebaseApiKey}'),
+        headers: {
+          'Authorization': 'Bearer $_currentUserToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'fields': _mapToFirestoreFields(activityData),
+        }),
+      );
     } catch (e) {
-      debugPrint('Error saving healing session: $e');
+      // Analytics tracking shouldn't break the app
+      print('Activity tracking failed: $e');
     }
   }
+  
+  /// Enhanced API access for paid users via Cloud Functions
+  Future<Map<String, dynamic>> callEnhancedAPI(String endpoint, Map<String, dynamic> data) async {
+    if (!isAuthenticated || _currentUser == null) {
+      throw FirebaseException('User not authenticated');
+    }
+    
+    final isPaidUser = _currentUser!.subscriptionTier != SubscriptionTier.free;
+    if (!isPaidUser) {
+      throw FirebaseException('Enhanced APIs require premium subscription');
+    }
+    
+    // Call Cloud Functions for enhanced features
+    final response = await http.post(
+      Uri.parse('https://us-central1-${_config.firebaseProjectId}.cloudfunctions.net/$endpoint'),
+      headers: {
+        'Authorization': 'Bearer $_currentUserToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        ...data,
+        'user_id': _currentUserId,
+        'subscription_tier': _currentUser!.subscriptionTier.name,
+      }),
+    );
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw FirebaseException('Enhanced API call failed: ${response.body}');
+    }
+  }
+  
+  /// Multi-model AI for premium users
+  Future<String> enhancedAIQuery(String query, String queryType, Map<String, dynamic> context) async {
+    final result = await callEnhancedAPI('enhancedAI', {
+      'query': query,
+      'query_type': queryType, // 'guidance', 'identification', 'healing'
+      'user_context': context,
+    });
+    
+    return result['response'] ?? 'AI response unavailable';
+  }
+  
+  /// Premium astrology API
+  Future<Map<String, dynamic>> getEnhancedBirthChart(DateTime birthDate, String birthTime, String location) async {
+    return await callEnhancedAPI('enhancedAstrology', {
+      'birth_date': birthDate.toIso8601String(),
+      'birth_time': birthTime,
+      'location': location,
+    });
+  }
+  
+  /// Real-time marketplace for premium users
+  Future<List<Map<String, dynamic>>> getMarketplaceListings({String? category}) async {
+    final result = await callEnhancedAPI('marketplace', {
+      'action': 'get_listings',
+      'category': category,
+    });
+    
+    return List<Map<String, dynamic>>.from(result['listings'] ?? []);
+  }
+  
+  /// Update user profile
+  Future<void> updateUserProfile(UserProfile profile) async {
+    await _saveUserProfile(profile);
+    _currentUser = profile;
+  }
+}
+
+/// Exception for Firebase service errors
+class FirebaseException implements Exception {
+  final String message;
+  FirebaseException(this.message);
+  
+  @override
+  String toString() => 'FirebaseException: $message';
 }

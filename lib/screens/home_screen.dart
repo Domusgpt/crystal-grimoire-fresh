@@ -108,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                MaterialPageRoute(builder: (_) => AccountScreen()),
               );
             },
           ),
@@ -137,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             builder: (context, child) {
               return Container(
                 decoration: BoxDecoration(
-                  backgroundImage: DecorationImage(
+                  image: DecorationImage(
                     image: AssetImage('assets/images/grid.png'),
                     repeat: ImageRepeat.repeat,
                     opacity: 0.05,
@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.amethystPurple, AppTheme.cosmicPurple],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const CrystalIdentificationScreen()),
+                            MaterialPageRoute(builder: (_) => CrystalIdentificationScreen()),
                           ),
                         ),
                         _buildFeatureCard(
@@ -192,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.blueViolet, AppTheme.mysticPink],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const CollectionScreen()),
+                            MaterialPageRoute(builder: (_) => CollectionScreen()),
                           ),
                         ),
                         _buildFeatureCard(
@@ -201,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.mysticPink, AppTheme.plum],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const MoonRitualsScreen()),
+                            MaterialPageRoute(builder: (_) => MoonRitualScreen()),
                           ),
                         ),
                         _buildFeatureCard(
@@ -210,7 +210,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.cosmicPurple, AppTheme.holoBlue],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const CrystalHealingScreen()),
+                            MaterialPageRoute(builder: (_) => CrystalHealingScreen()),
                           ),
                         ),
                         _buildFeatureCard(
@@ -219,7 +219,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.holoPink, AppTheme.amethystPurple],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const DreamJournalScreen()),
+                            MaterialPageRoute(builder: (_) => JournalScreen()),
                           ),
                         ),
                         _buildFeatureCard(
@@ -228,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           gradientColors: [AppTheme.holoBlue, AppTheme.holoYellow],
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const SoundBathScreen()),
+                            MaterialPageRoute(builder: (_) => SoundBathScreen()),
                           ),
                         ),
                       ]),
@@ -243,7 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         text: '🛍️ Crystal Marketplace',
                         onPressed: () => Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const MarketplaceScreen()),
+                          MaterialPageRoute(builder: (_) => MarketplaceScreen()),
                         ),
                       ),
                     ),
