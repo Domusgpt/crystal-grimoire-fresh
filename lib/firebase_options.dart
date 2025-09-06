@@ -46,7 +46,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '513072589861',
     projectId: 'crystal-grimoire-2025',
     authDomain: 'crystal-grimoire-2025.firebaseapp.com',
-    storageBucket: 'crystal-grimoire-2025.firebasestorage.app',
+    storageBucket: 'crystal-grimoire-2025.appspot.com',
   );
 
   static const FirebaseOptions android = FirebaseOptions(

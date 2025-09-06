@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../theme/app_theme.dart';
-import '../widgets/floating_crystals.dart';
+import "../widgets/no_particles.dart";
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -70,19 +70,10 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 800));
     _progressController.forward();
     
-    // Navigate to home after animations complete
+    // Navigate to auth wrapper after animations complete
     await Future.delayed(const Duration(milliseconds: 4000));
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => const HomeScreen(),
-          transitionDuration: const Duration(milliseconds: 1000),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-        ),
-      );
+      Navigator.pushReplacementNamed(context, '/auth-check');
     }
   }
   
@@ -114,8 +105,8 @@ class _SplashScreenState extends State<SplashScreen>
             ),
           ),
           
-          // Floating crystals background
-          const FloatingCrystals(crystalCount: 25, maxSize: 40),
+          // Floating crystals background (reduced for performance)
+          const SimpleGradientParticles(particleCount: 3),
           
           // Main content
           Center(

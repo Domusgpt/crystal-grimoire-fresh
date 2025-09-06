@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/app_state.dart';
+import '../services/auth_service.dart';
+import '../services/economy_service.dart';
 import '../widgets/common/mystical_button.dart';
 import '../widgets/animations/mystical_animations.dart';
 
@@ -17,14 +21,20 @@ class _AccountScreenState extends State<AccountScreen>
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
   
-  // Mock user data
-  final String _userName = 'Crystal Seeker';
-  final String _userEmail = 'seeker@crystalgrimoire.com';
-  final String _memberSince = 'October 2024';
-  final String _currentTier = 'Free';
-  final int _crystalsIdentified = 23;
-  final int _journalEntries = 12;
-  final int _daysStreak = 7;
+  // Real user data from Firebase
+  User? _currentUser;
+  Map<String, dynamic>? _userData;
+  Map<String, dynamic>? _userStats;
+  bool _isLoading = true;
+  
+  // Computed properties for UI
+  String get _userName => _userData?['name'] ?? _currentUser?.displayName ?? 'Crystal Seeker';
+  String get _userEmail => _currentUser?.email ?? 'No email';
+  String get _memberSince => _userData?['createdAt']?.toDate()?.toString().split(' ')[0] ?? 'Unknown';
+  int get _crystalsIdentified => _userStats?['crystalsIdentified'] ?? 0;
+  int get _journalEntries => _userStats?['journalEntries'] ?? 0;
+  int get _daysStreak => _userStats?['daysStreak'] ?? 0;
+  String get _currentTier => _userData?['tier'] ?? 'Free';
 
   @override
   void initState() {
@@ -36,7 +46,44 @@ class _AccountScreenState extends State<AccountScreen>
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
     );
+    _loadUserData();
     _fadeController.forward();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      _currentUser = FirebaseAuth.instance.currentUser;
+      if (_currentUser != null) {
+        // Load user profile data
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_currentUser!.uid)
+            .get();
+            
+        if (userDoc.exists) {
+          _userData = userDoc.data();
+        }
+        
+        // Load user statistics
+        final statsDoc = await FirebaseFirestore.instance
+            .collection('user_stats')
+            .doc(_currentUser!.uid)
+            .get();
+            
+        if (statsDoc.exists) {
+          _userStats = statsDoc.data();
+        }
+      }
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading user data: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -571,6 +618,13 @@ class _AccountScreenState extends State<AccountScreen>
         ],
       ),
     );
+  }
+
+  String _formatJoinDate(DateTime? creationTime) {
+    if (creationTime == null) return 'Recently';
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[creationTime.month - 1]} ${creationTime.year}';
   }
 
   void _showSignOutDialog() {

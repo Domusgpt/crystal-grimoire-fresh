@@ -8,8 +8,8 @@ class FloatingCrystals extends StatefulWidget {
   
   const FloatingCrystals({
     super.key,
-    this.crystalCount = 15,
-    this.maxSize = 60,
+    this.crystalCount = 5,    // Further reduced for performance
+    this.maxSize = 30,        // Smaller size for less overdraw
   });
 
   @override
@@ -19,12 +19,13 @@ class FloatingCrystals extends StatefulWidget {
 class _FloatingCrystalsState extends State<FloatingCrystals> with TickerProviderStateMixin {
   final List<CrystalParticle> crystals = [];
   late AnimationController _animationController;
+  double _lastUpdateTime = 0;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: const Duration(seconds: 20),
+      duration: const Duration(seconds: 60), // Much slower for better performance
       vsync: this,
     )..repeat();
     
@@ -35,20 +36,18 @@ class _FloatingCrystalsState extends State<FloatingCrystals> with TickerProvider
     final random = math.Random();
     for (int i = 0; i < widget.crystalCount; i++) {
       crystals.add(CrystalParticle(
-        position: Offset(
-          random.nextDouble() * 1.0,
-          random.nextDouble() * 1.0,
-        ),
-        size: random.nextDouble() * widget.maxSize + 20,
-        speed: random.nextDouble() * 0.02 + 0.005,
-        opacity: random.nextDouble() * 0.3 + 0.1,
+        initialX: random.nextDouble(),
+        initialY: random.nextDouble(),
+        size: random.nextDouble() * widget.maxSize + 15,
+        speed: random.nextDouble() * 0.008 + 0.002, // Much slower
+        opacity: random.nextDouble() * 0.2 + 0.05,  // More subtle
         color: [
           AppTheme.amethystPurple,
           AppTheme.cosmicPurple,
           AppTheme.mysticPink,
           AppTheme.holoBlue,
         ][random.nextInt(4)],
-        rotationSpeed: random.nextDouble() * 2 - 1,
+        rotationSpeed: random.nextDouble() * 0.5 - 0.25, // Much slower rotation
       ));
     }
   }
@@ -64,101 +63,114 @@ class _FloatingCrystalsState extends State<FloatingCrystals> with TickerProvider
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
+        // Throttle updates to ~20fps for better performance
+        final currentTime = _animationController.value;
+        if ((currentTime - _lastUpdateTime).abs() > 0.05) {
+          _updateCrystalPositions();
+          _lastUpdateTime = currentTime;
+        }
+        
         return CustomPaint(
           painter: CrystalPainter(
             crystals: crystals,
-            animation: _animationController.value,
           ),
           size: Size.infinite,
         );
       },
     );
   }
+
+  void _updateCrystalPositions() {
+    final time = _animationController.value;
+    for (var crystal in crystals) {
+      // Pre-calculate positions to avoid expensive calculations in paint
+      crystal.currentX = crystal.initialX;
+      crystal.currentY = (crystal.initialY + crystal.speed * time) % 1.0;
+      crystal.currentRotation = time * crystal.rotationSpeed * 2 * math.pi;
+    }
+  }
 }
 
 class CrystalParticle {
-  Offset position;
+  final double initialX;
+  final double initialY;
   final double size;
   final double speed;
   final double opacity;
   final Color color;
   final double rotationSpeed;
+  
+  // Pre-calculated values updated outside paint method
+  late double currentX;
+  late double currentY;
+  late double currentRotation;
 
   CrystalParticle({
-    required this.position,
+    required this.initialX,
+    required this.initialY,
     required this.size,
     required this.speed,
     required this.opacity,
     required this.color,
     required this.rotationSpeed,
-  });
+  }) {
+    currentX = initialX;
+    currentY = initialY;
+    currentRotation = 0.0;
+  }
 }
 
 class CrystalPainter extends CustomPainter {
   final List<CrystalParticle> crystals;
-  final double animation;
+  
+  // Cache paint objects and paths for maximum performance
+  static final Paint _fillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _strokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.5; // Thinner stroke for better performance
+    
+  // Pre-built path for all crystals (static shape)
+  static final Path _crystalPath = Path()
+    ..moveTo(0, -1)
+    ..lineTo(0.4, 0)
+    ..lineTo(0, 1)
+    ..lineTo(-0.4, 0)
+    ..close();
 
-  CrystalPainter({
-    required this.crystals,
-    required this.animation,
-  });
+  CrystalPainter({required this.crystals});
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Only paint visible crystals (simple bounds check)
     for (var crystal in crystals) {
-      // Update position
-      crystal.position = Offset(
-        crystal.position.dx,
-        (crystal.position.dy + crystal.speed * animation) % 1.0,
-      );
+      final x = crystal.currentX * size.width;
+      final y = crystal.currentY * size.height;
       
-      final x = crystal.position.dx * size.width;
-      final y = crystal.position.dy * size.height;
+      // Skip crystals outside visible area (with small buffer)
+      if (x < -crystal.size || x > size.width + crystal.size ||
+          y < -crystal.size || y > size.height + crystal.size) {
+        continue;
+      }
       
       canvas.save();
       canvas.translate(x, y);
-      canvas.rotate(animation * crystal.rotationSpeed * 2 * math.pi);
+      canvas.scale(crystal.size / 2); // Scale the unit path
+      canvas.rotate(crystal.currentRotation);
       
-      // Draw crystal shape
-      final paint = Paint()
-        ..color = crystal.color.withOpacity(crystal.opacity)
-        ..style = PaintingStyle.fill;
+      // Set colors once per crystal
+      _fillPaint.color = crystal.color.withOpacity(crystal.opacity);
+      _strokePaint.color = Colors.white.withOpacity(crystal.opacity * 0.2);
       
-      final glowPaint = Paint()
-        ..color = crystal.color.withOpacity(crystal.opacity * 0.3)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      // Draw using pre-built path (much faster than creating new paths)
+      canvas.drawPath(_crystalPath, _fillPaint);
       
-      // Draw hexagon crystal
-      final path = Path();
-      final radius = crystal.size / 2;
-      for (int i = 0; i < 6; i++) {
-        final angle = (math.pi / 3) * i;
-        final px = radius * math.cos(angle);
-        final py = radius * math.sin(angle);
-        if (i == 0) {
-          path.moveTo(px, py);
-        } else {
-          path.lineTo(px, py);
-        }
-      }
-      path.close();
-      
-      // Draw glow
-      canvas.drawPath(path, glowPaint);
-      // Draw crystal
-      canvas.drawPath(path, paint);
-      
-      // Draw inner facets
-      final facetPaint = Paint()
-        ..color = Colors.white.withOpacity(crystal.opacity * 0.3)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1;
-      
-      for (int i = 0; i < 6; i++) {
-        final angle = (math.pi / 3) * i;
-        final px = radius * math.cos(angle);
-        final py = radius * math.sin(angle);
-        canvas.drawLine(Offset.zero, Offset(px, py), facetPaint);
+      // Simple inner line (only if crystal is large enough to matter)
+      if (crystal.size > 20) {
+        canvas.drawLine(
+          const Offset(0, -0.6), 
+          const Offset(0, 0.6), 
+          _strokePaint,
+        );
       }
       
       canvas.restore();
@@ -166,5 +178,8 @@ class CrystalPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CrystalPainter oldDelegate) => true;
+  bool shouldRepaint(CrystalPainter oldDelegate) {
+    // Always repaint since we're managing updates externally
+    return true;
+  }
 }

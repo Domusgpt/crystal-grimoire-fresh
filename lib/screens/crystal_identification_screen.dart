@@ -7,7 +7,7 @@ import '../services/crystal_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/glassmorphic_container.dart';
 import '../widgets/holographic_button.dart';
-import '../widgets/floating_crystals.dart';
+import "../widgets/no_particles.dart";
 
 class CrystalIdentificationScreen extends StatefulWidget {
   const CrystalIdentificationScreen({super.key});
@@ -228,7 +228,7 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
           ),
           
           // Floating crystals
-          const FloatingCrystals(crystalCount: 10, maxSize: 30),
+          const SimpleGradientParticles(particleCount: 5),
           
           // Main content
           SafeArea(

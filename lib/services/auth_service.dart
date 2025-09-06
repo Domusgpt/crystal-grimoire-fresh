@@ -8,8 +8,9 @@ import 'storage_service.dart';
 
 class AuthService extends ChangeNotifier {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final GoogleSignIn _googleSignIn = GoogleSignIn();
+  static final GoogleSignIn _googleSignIn = GoogleSignIn.instance; // Modern 7.x singleton pattern
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static bool _isGoogleSignInInitialized = false;
   
   // Stream of auth state changes
   static Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -64,38 +65,58 @@ class AuthService extends ChangeNotifier {
     }
   }
   
-  // Sign in with Google
+  // Initialize Google Sign-In (required in 7.x)
+  static Future<void> _initializeGoogleSignIn() async {
+    if (!_isGoogleSignInInitialized) {
+      try {
+        await _googleSignIn.initialize();
+        _isGoogleSignInInitialized = true;
+        print('✅ Google Sign-In initialized');
+      } catch (e) {
+        print('❌ Failed to initialize Google Sign-In: $e');
+        throw Exception('Google Sign-In initialization failed: $e');
+      }
+    }
+  }
+
+  // Sign in with Google - Modern 7.x API with Firebase integration
   static Future<UserCredential?> signInWithGoogle() async {
     try {
-      print('🔑 Starting Google Sign-In process...');
+      print('🔑 Starting Google Sign-In 7.x process...');
       
-      // Trigger the authentication flow
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      // Initialize Google Sign-In (required in 7.x)
+      await _initializeGoogleSignIn();
+      
+      // Trigger the authentication flow using modern authenticate() method
+      final GoogleSignInAccount? googleUser = await _googleSignIn.authenticate(
+        scopeHint: ['email', 'profile'],
+      );
       
       if (googleUser == null) {
         print('❌ Google sign in cancelled by user');
-        throw Exception('Google sign in cancelled');
+        return null; // User cancelled
       }
       
-      print('✅ Google user selected: ${googleUser.email}');
+      print('✅ Google user authenticated: ${googleUser.email}');
       
-      // Obtain the auth details from the request
+      // Get the authentication details from the request
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       
-      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
-        print('❌ Google authentication tokens are null');
-        throw Exception('Google authentication failed - no tokens received');
+      if (googleAuth.idToken == null) {
+        print('❌ Google authentication idToken is null');
+        throw Exception('Google authentication failed - no idToken received');
       }
       
       print('✅ Google authentication tokens received');
       
-      // Create a new credential
+      // Create Firebase credential using the Google ID token
+      // Firebase handles authentication with idToken only in modern setup
       final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
+        accessToken: null, // Not required for Firebase integration
       );
       
-      // Sign in to Firebase
+      // Sign in to Firebase with the Google credential
       print('🔥 Signing in to Firebase with Google credentials...');
       final userCredential = await _auth.signInWithCredential(credential);
       
@@ -107,7 +128,7 @@ class AuthService extends ChangeNotifier {
       return userCredential;
     } on FirebaseAuthException catch (e) {
       print('❌ Firebase Auth Error: ${e.code} - ${e.message}');
-      throw Exception('Google sign in failed: ${e.message}');
+      throw _handleAuthException(e);
     } catch (e) {
       print('❌ General Google Sign-In Error: $e');
       throw Exception('Google sign in failed: $e');
@@ -132,8 +153,8 @@ class AuthService extends ChangeNotifier {
           AppleIDAuthorizationScopes.fullName,
         ],
         webAuthenticationOptions: WebAuthenticationOptions(
-          clientId: 'com.crystalgrimoire.app',
-          redirectUri: Uri.parse('https://crystalgrimoire-v3-production.firebaseapp.com/__/auth/handler'),
+          clientId: 'com.crystalgrimoire.fresh',
+          redirectUri: Uri.parse('https://crystal-grimoire-2025.firebaseapp.com/__/auth/handler'),
         ),
       );
       
@@ -187,15 +208,24 @@ class AuthService extends ChangeNotifier {
     }
   }
   
-  // Sign out
+  // Sign out - Modern 7.x pattern
   static Future<void> signOut() async {
-    await Future.wait([
-      _auth.signOut(),
-      _googleSignIn.signOut(),
-    ]);
-    
-    // Clear local storage
-    await StorageService.clearUserData();
+    try {
+      // Sign out from Firebase first
+      await _auth.signOut();
+      
+      // Sign out from Google Sign-In (modern 7.x pattern - no currentUser tracking)
+      await _googleSignIn.signOut();
+      
+      // Clear local storage
+      await StorageService.clearUserData();
+      
+      print('✅ Successfully signed out');
+    } catch (e) {
+      print('❌ Sign out error: $e');
+      // Still clear local storage even if remote sign out fails
+      await StorageService.clearUserData();
+    }
   }
   
   // Delete account

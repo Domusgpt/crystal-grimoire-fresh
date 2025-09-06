@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:dio/dio.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import '../models/crystal_model.dart';
 
 class CrystalService extends ChangeNotifier {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  final Dio _dio = Dio();
+  FirebaseFunctions? _functions;
+  FirebaseFunctions get functions => _functions ??= FirebaseFunctions.instance;
   
   bool _isIdentifying = false;
   bool get isIdentifying => _isIdentifying;
@@ -29,7 +28,7 @@ class CrystalService extends ChangeNotifier {
       final base64Image = base64Encode(imageBytes);
       
       // Call Cloud Function
-      final callable = _functions.httpsCallable('identifyCrystal');
+      final callable = functions.httpsCallable('identifyCrystal');
       final result = await callable.call({
         'imageData': base64Image,
         'includeMetaphysical': true,
@@ -83,7 +82,7 @@ class CrystalService extends ChangeNotifier {
     String? intention,
   }) async {
     try {
-      final callable = _functions.httpsCallable('getCrystalGuidance');
+      final callable = functions.httpsCallable('getCrystalGuidance');
       final result = await callable.call({
         'crystalName': crystalName,
         'userProfile': userProfile,
@@ -103,7 +102,7 @@ class CrystalService extends ChangeNotifier {
     required Map<String, dynamic> userProfile,
   }) async {
     try {
-      final callable = _functions.httpsCallable('getCrystalRecommendations');
+      final callable = functions.httpsCallable('getCrystalRecommendations');
       final result = await callable.call({
         'need': need,
         'userProfile': userProfile,
@@ -138,7 +137,7 @@ class CrystalService extends ChangeNotifier {
     String? intention,
   }) async {
     try {
-      final callable = _functions.httpsCallable('generateHealingLayout');
+      final callable = functions.httpsCallable('generateHealingLayout');
       final result = await callable.call({
         'availableCrystals': availableCrystals,
         'targetChakras': targetChakras,
@@ -159,7 +158,7 @@ class CrystalService extends ChangeNotifier {
     DateTime? dreamDate,
   }) async {
     try {
-      final callable = _functions.httpsCallable('analyzeDream');
+      final callable = functions.httpsCallable('analyzeDream');
       final result = await callable.call({
         'dreamContent': dreamContent,
         'userCrystals': userCrystals,
@@ -180,7 +179,7 @@ class CrystalService extends ChangeNotifier {
     required Map<String, dynamic> userProfile,
   }) async {
     try {
-      final callable = _functions.httpsCallable('getMoonRituals');
+      final callable = functions.httpsCallable('getMoonRituals');
       final result = await callable.call({
         'moonPhase': moonPhase,
         'userCrystals': userCrystals,
@@ -200,7 +199,7 @@ class CrystalService extends ChangeNotifier {
     String? purpose,
   }) async {
     try {
-      final callable = _functions.httpsCallable('checkCrystalCompatibility');
+      final callable = functions.httpsCallable('checkCrystalCompatibility');
       final result = await callable.call({
         'crystalNames': crystalNames,
         'purpose': purpose,
@@ -216,7 +215,7 @@ class CrystalService extends ChangeNotifier {
   // Get crystal care instructions
   Future<Map<String, dynamic>?> getCareInstructions(String crystalName) async {
     try {
-      final callable = _functions.httpsCallable('getCrystalCare');
+      final callable = functions.httpsCallable('getCrystalCare');
       final result = await callable.call({
         'crystalName': crystalName,
       });
@@ -225,6 +224,33 @@ class CrystalService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error getting care instructions: $e');
       return null;
+    }
+  }
+  
+  // Get daily crystal recommendation
+  Future<Map<String, dynamic>?> getDailyCrystal() async {
+    try {
+      final callable = functions.httpsCallable('getDailyCrystal');
+      final result = await callable.call();
+      
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('Error getting daily crystal: $e');
+      // Return a fallback crystal with real properties
+      return {
+        'name': 'Clear Quartz',
+        'description': 'The master healer crystal that amplifies energy and intentions. Known as the most versatile healing stone, Clear Quartz can be programmed with any intention and works harmoniously with all other crystals.',
+        'properties': ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
+        'metaphysical_properties': {
+          'healing_properties': ['Amplifies energy', 'Promotes clarity', 'Enhances spiritual growth'],
+          'primary_chakras': ['Crown', 'All Chakras'],
+        },
+        'identification': {
+          'name': 'Clear Quartz',
+          'confidence': 95,
+          'variety': 'Crystalline Quartz'
+        }
+      };
     }
   }
   
@@ -237,7 +263,8 @@ class CrystalService extends ChangeNotifier {
     String? color,
   }) async {
     try {
-      final callable = _functions.httpsCallable('searchCrystals');
+      final callable = _functions?.httpsCallable('searchCrystals');
+      if (callable == null) return [];
       final result = await callable.call({
         'chakra': chakra,
         'zodiacSign': zodiacSign,

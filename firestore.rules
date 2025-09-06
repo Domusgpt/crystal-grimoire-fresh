@@ -2,97 +2,198 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
-    function isAuthenticated() {
+    // SPEC-1 Compliant Security Rules with Enhanced Validation
+    function isAuth() {
       return request.auth != null;
     }
     
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
     }
     
     function isAdmin() {
-      return isAuthenticated() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isAdmin == true;
+      return isAuth() && request.auth.token.role == 'admin';
+    }
+    
+    function isValidEmail() {
+      return isAuth() && request.auth.token.email_verified == true;
+    }
+    
+    function hasValidData(fields) {
+      return request.resource.data.keys().hasAll(fields) &&
+             request.resource.data.keys().hasOnly(fields.concat(['createdAt', 'updatedAt']));
+    }
+    
+    function isRecentTimestamp() {
+      return request.resource.data.createdAt is timestamp &&
+             request.resource.data.createdAt > request.time - duration.value(1, 'm') &&
+             request.resource.data.createdAt <= request.time;
+    }
+    
+    function isValidStringLength(value, minLen, maxLen) {
+      return value is string && value.size() >= minLen && value.size() <= maxLen;
     }
 
-    // Users can only access their own profile data
+    // User profiles with enhanced validation
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, update: if isOwner(userId) && isValidEmail();
+      allow create: if isAuth() && request.auth.uid == userId && isValidEmail() &&
+                   hasValidData(['email', 'profile', 'settings']) &&
+                   request.resource.data.email == request.auth.token.email &&
+                   isRecentTimestamp();
+      allow delete: if false; // Use Cloud Function for GDPR compliance
       
-      // User's crystal collection
-      match /crystals/{crystalId} {
+      // Personal crystal collection
+      match /collection/{crystalId} {
         allow read, write: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                     hasValidData(['libraryRef', 'notes', 'tags', 'addedAt']) &&
+                     isValidStringLength(request.resource.data.notes, 0, 1000) &&
+                     isRecentTimestamp();
       }
       
-      // User's dream journal  
+      // Crystal identifications with size limits
+      match /identifications/{identificationId} {
+        allow read, write: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                     hasValidData(['imagePath', 'candidates', 'selected', 'createdAt']) &&
+                     request.resource.data.candidates is list &&
+                     request.resource.data.candidates.size() <= 5 &&
+                     isRecentTimestamp();
+      }
+      
+      // Guidance history with content validation
+      match /guidance/{guidanceId} {
+        allow read, write: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                     hasValidData(['context', 'output', 'metadata', 'createdAt']) &&
+                     request.resource.data.output.keys().hasAll(['overview', 'meditation', 'crystalLayout', 'mantra', 'cautions']) &&
+                     isRecentTimestamp();
+      }
+      
+      // Seer Credits economy (read-only for users)
+      match /economy/{doc} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only Cloud Functions can modify
+        
+        match /transactions/{transactionId} {
+          allow read: if isOwner(userId);
+          allow write: if false; // Only Cloud Functions
+        }
+      }
+      
+      // User plan and entitlements
+      match /plan/{doc} {
+        allow read: if isOwner(userId);
+        allow write: if isAdmin();
+      }
+      
+      // Badges and achievements
+      match /badges/{badgeId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) || isAdmin();
+        allow update, delete: if isAdmin();
+      }
+      
+      // Dream journal with privacy protection
       match /dreams/{dreamId} {
         allow read, write: if isOwner(userId);
-      }
-      
-      // User's healing sessions
-      match /healingSessions/{sessionId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      // User's rituals
-      match /rituals/{ritualId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      // User's notifications
-      match /notifications/{notificationId} {
-        allow read, write: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                     hasValidData(['content', 'analysis', 'crystalSuggestions', 'dreamDate']) &&
+                     isValidStringLength(request.resource.data.content, 10, 5000);
       }
     }
     
-    // Crystal database - read-only for authenticated users
-    match /crystal_database/{crystalId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin(); // Only admins can modify master database
+    // Crystal library with admin controls
+    match /crystal_library/{crystalId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+      allow create: if isAdmin() &&
+                   hasValidData(['name', 'aliases', 'intents', 'chakras', 'zodiacSigns', 'elements', 'imageUrl']) &&
+                   isValidStringLength(request.resource.data.name, 2, 50) &&
+                   request.resource.data.aliases is list &&
+                   request.resource.data.intents is list &&
+                   isRecentTimestamp();
     }
     
-    // Marketplace listings
+    // Marketplace with enhanced validation
     match /marketplace/{listingId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && 
-        (request.auth.uid == resource.data.sellerId || isAdmin());
+      allow read: if isAuth();
+      allow create: if isAuth() &&
+                   hasValidData(['title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description']) &&
+                   request.resource.data.sellerId == request.auth.uid &&
+                   request.resource.data.status == 'active' &&
+                   request.resource.data.priceCents is int &&
+                   request.resource.data.priceCents > 0 &&
+                   request.resource.data.priceCents <= 100000 && // Max $1000
+                   isValidStringLength(request.resource.data.title, 5, 80) &&
+                   isValidStringLength(request.resource.data.description, 0, 2000) &&
+                   isRecentTimestamp();
+      allow update: if isAuth() &&
+                   resource.data.sellerId == request.auth.uid &&
+                   request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['title', 'description', 'priceCents', 'updatedAt']) &&
+                   request.resource.data.priceCents > 0 &&
+                   request.resource.data.priceCents <= 100000;
+      allow delete: if isAuth() &&
+                   (resource.data.sellerId == request.auth.uid || isAdmin());
     }
     
-    // Moon data - readable by all authenticated users
-    match /moonData/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin(); // Auto-updated by cloud functions
+    // Usage tracking (system managed)
+    match /usage/{usageDoc} {
+      allow read: if isAuth() && usageDoc.matches('.*' + request.auth.uid + '.*');
+      allow write: if false; // Only Cloud Functions
     }
     
-    // Crystal identifications - user's own identification history
-    match /identifications/{identificationId} {
-      allow read, write: if isAuthenticated() && 
-        request.auth.uid == resource.data.userId;
-      allow create: if isAuthenticated();
-    }
-    
-    // Support tickets
-    match /supportTickets/{ticketId} {
-      allow read, write: if isAuthenticated() && 
-        request.auth.uid == resource.data.userId;
-      allow create: if isAuthenticated();
-    }
-    
-    // Admin collections - admin only
-    match /admins/{adminId} {
-      allow read: if isOwner(adminId);
+    // Feature flags (read-only)
+    match /feature_flags/{flagName} {
+      allow read: if isAuth();
       allow write: if isAdmin();
     }
     
+    // Support tickets with validation
+    match /support_tickets/{ticketId} {
+      allow read: if isAuth() &&
+                 (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() &&
+                   hasValidData(['subject', 'description', 'userId', 'status', 'priority']) &&
+                   request.resource.data.userId == request.auth.uid &&
+                   request.resource.data.status == 'open' &&
+                   request.resource.data.priority in ['low', 'medium', 'high'] &&
+                   isValidStringLength(request.resource.data.subject, 5, 100) &&
+                   isValidStringLength(request.resource.data.description, 10, 5000) &&
+                   isRecentTimestamp();
+      allow update: if isAuth() &&
+                   (resource.data.userId == request.auth.uid || isAdmin());
+    }
+    
+    // Invite codes (admin managed)
+    match /invites/{code} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    // Error logs (system only)
+    match /error_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only Cloud Functions
+    }
+    
+    // Analytics (admin only)
     match /analytics/{document=**} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if false; // Only Cloud Functions
     }
     
-    // System notifications - readable by all
-    match /systemNotifications/{notificationId} {
-      allow read: if isAuthenticated();
+    // System notifications
+    match /system_notifications/{notificationId} {
+      allow read: if isAuth();
       allow write: if isAdmin();
+    }
+    
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
