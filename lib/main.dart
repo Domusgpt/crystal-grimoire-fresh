@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/settings_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 
@@ -49,6 +50,7 @@ class CrystalGrimoireApp extends StatelessWidget {
           '/auth-check': (context) => const AuthWrapper(),
           '/login': (context) => const LoginScreen(),
           '/home': (context) => const HomeScreen(),
+          '/settings': (context) => const SettingsScreen(),
         },
       ),
     );
