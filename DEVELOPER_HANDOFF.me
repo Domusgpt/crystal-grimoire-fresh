@@ -1,0 +1,102 @@
+# Crystal Grimoire – Developer Handoff
+
+## Summary of recent fixes
+- Settings screen now drives privacy/language modals, persists toggles to `users/{uid}.settings`, and the About tiles launch the configured Terms, Privacy, or Support destinations instead of placeholders. AppState mirrors the persisted snapshot so offline boots stay consistent.
+- The public landing page feature cards deep-link into the Flutter web app instead of firing “coming soon” alerts, so testers can launch the real flows straight from Hosting.
+- Account/Profile usage tiles read Firestore (`users/{uid}/plan`, `usage/{uid_ymd}`) and the live collection size before rendering tiers/limits; upgrade CTAs route to the shared `/subscription` paywall.
+- `CollectionServiceV2` listens to auth state, syncs with Firestore (`users/{uid}/collection` & `collectionLogs`), and keeps a SharedPreferences cache for offline reads; entries now persist only `libraryRef`, `tags`, and `notes` so we comply with the tightened security rules while reconstructing full crystal metadata from `crystal_library`.
+- `AppState` hydrates crystals, identifications, onboarding flags, and settings via Firestore/SharedPreferences and counts journal entries for the current month.
+- RevenueCat renewal flags now mirror the provider values, Stripe checkout results persist ISO timestamps, and both the paywall and profile screens show accurate renewal/expiry messaging sourced from Firestore.
+- Crystal identifications now persist under `users/{uid}/identifications` with `{ imagePath, candidates, selected, createdAt, updatedAt }`, and the callable backfills any legacy top-level docs so the account screen sees recent IDs immediately.
+- Dream analyses store structured guidance with `createdAt/updatedAt`, crystal suggestions, mood, and moon phase—security rules now allow the enriched schema and the client no longer writes placeholder fields.
+- Stripe/RevenueCat handlers reuse `PlanEntitlements` (`lib/config/plan_entitlements.dart`) so `users/{uid}.profile` and `plan/active` always include the correct `effectiveLimits`, `flags`, and lifetime markers for each tier.
+- Seer Credits spend descriptions label roadmap perks explicitly so there are no “coming soon” placeholders in the in-app economy copy.
+- Auth bootstrapping (`AuthService`, Cloud Functions) now keeps the top-level user document limited to `{ email, profile, settings, createdAt, updatedAt }`, matching Firestore rules and ensuring subscription metadata lives under `profile` alongside timestamps.
+- API providers pull credentials from `EnvironmentConfig` (no hard-coded Gemini/OpenAI/Groq keys) and the paywall uses Stripe on web. `EnhancedPaymentService` launches a Cloud Function-powered checkout, polls the status, and reconciles the user’s tier without mock responses.
+- Ads service reads AdMob IDs/test devices from `EnvironmentConfig`; if unset it automatically falls back to Google test units so there are no production TODOs.
+
+## Local environment setup
+1. **Flutter SDK** – Install Flutter 3.19 or newer. On macOS/Linux the repo team uses [`asdf`](https://asdf-vm.com/) with the [`asdf-flutter`](https://github.com/oae/asdf-flutter) plugin: `asdf plugin add flutter` then `asdf install flutter 3.22.2`. Add the binary to your `PATH` (e.g., `asdf global flutter 3.22.2`).
+2. **Dart** – Bundled with Flutter; no separate install required.
+3. **Node.js 20 + npm** – Required for Cloud Functions. `asdf plugin add nodejs` (or `nvm install 20`). After installing, run `npm install` inside the `functions/` directory.
+4. **Firebase CLI** – `npm install -g firebase-tools`, then `firebase login` and `firebase use <project-id>` before deploying.
+5. **Melos/FlutterFire CLI (optional)** – Only needed if you regenerate Firebase configs; install via `dart pub global activate melos` / `dart pub global activate flutterfire_cli`.
+6. Run `flutter pub get` (web) and `dart pub get` for any pure-Dart tooling, then `flutter pub run build_runner build --delete-conflicting-outputs` if you touch generated files.
+
+Procedural audio replaces bundled sound bath WAV files; no binary assets remain in `assets/sounds/`. The soundscapes are generated at runtime, so you do not need to download additional media.
+
+## Environment / configuration
+Set these Dart defines (e.g., `flutter run --dart-define=KEY=value`) or provide them through your build tooling:
+
+| Variable | Purpose |
+| --- | --- |
+| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID` | Firebase core services |
+| `GEMINI_API_KEY` (and optionally `OPENAI_API_KEY`, `CLAUDE_API_KEY`, `GROQ_API_KEY`) | AI integrations |
+| `AI_DEFAULT_PROVIDER` | Preferred AI provider identifier (`gemini`, `openai`, `claude`, `groq`, `replicate`) |
+| `REVENUECAT_API_KEY` | Required for RevenueCat purchases on iOS/Android |
+| `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PREMIUM_PRICE_ID`, `STRIPE_PRO_PRICE_ID`, `STRIPE_FOUNDERS_PRICE_ID` | Web checkout (Stripe price IDs feed the paywall) |
+| `BACKEND_URL`, `USE_LOCAL_BACKEND` | Optional backend routing (`BACKEND_URL` should point to the root, e.g. `https://api.example.com`; `USE_LOCAL_BACKEND=true` enables `http://localhost:8081/api`) |
+| `TERMS_URL`, `PRIVACY_URL`, `SUPPORT_URL`, `SUPPORT_EMAIL` | Settings/About destinations (URLs are optional—defaults derive from `EnvironmentConfig.websiteUrl`; `SUPPORT_EMAIL` is used for `mailto:` when no support URL exists) |
+| `ADMOB_ANDROID_BANNER_ID`, `ADMOB_IOS_BANNER_ID`, `ADMOB_ANDROID_INTERSTITIAL_ID`, `ADMOB_IOS_INTERSTITIAL_ID`, `ADMOB_ANDROID_REWARDED_ID`, `ADMOB_IOS_REWARDED_ID` | Real AdMob units (defaults to Google test IDs when absent) |
+| `ADMOB_TEST_DEVICE_IDS` | Comma-separated AdMob test device IDs |
+| `HOROSCOPE_API_KEY` | Optional external astrology provider |
+
+Configure Stripe secrets for Cloud Functions before deploying checkout flows:
+
+```
+firebase functions:config:set \
+  stripe.secret_key=sk_live_xxx \
+  stripe.premium_price_id=price_123 \
+  stripe.pro_price_id=price_456 \
+  stripe.founders_price_id=price_789
+```
+
+Missing values disable the callable checkout endpoints.
+
+Call `EnvironmentConfig.printConfigurationStatus()` during bootstrap to log any missing keys (including AdMob) before shipping.
+
+## Firestore data contracts
+- `users/{uid}` – top-level keys are limited to `{ email, profile, settings, createdAt, updatedAt }`
+  - `profile`: `{ uid, displayName, photoUrl?, subscriptionTier, subscriptionStatus, subscriptionProvider?, subscriptionBillingTier?, subscriptionWillRenew?, subscriptionExpiresAt?, subscriptionUpdatedAt?, effectiveLimits?: { identifyPerDay, guidancePerDay, journalMax, collectionMax }, isDevelopmentAccount?, createdAt, lastLoginAt }`
+  - `settings`: `{ notifications: bool, sound: bool, vibration: bool, darkMode: bool, meditationReminder: string, crystalReminder: string, shareUsageData: bool, contentWarnings: bool, language: string }`
+- `plan/active`: `{ plan: 'free'|'premium'|'pro'|'founders', billingTier?: string, provider: 'stripe'|'revenuecat'|'manual', priceId?, effectiveLimits: { identifyPerDay, guidancePerDay, journalMax, collectionMax }, flags: string[], willRenew: bool, lifetime: bool, updatedAt, expiresAt? }`
+- `usage/{uid_ymd}`: `{ identifyCount, guidanceCount, ... }` – Account screen reads today’s doc.
+- `users/{uid}/collection/{entryId}`: `{ libraryRef: string, notes: string, tags: string[], addedAt: timestamp, createdAt?: timestamp, updatedAt?: timestamp }` – the client dereferences `libraryRef` against `crystal_library/{slug}` to hydrate the full crystal details locally.
+- `users/{uid}/collectionLogs/{logId}`: usage log entries saved by the collection service.
+- `users/{uid}/identifications/{id}`: `{ imagePath: string|null, candidates: [{ name, confidence, rationale, variety? }], selected: { name, confidence, rationale, variety? }, createdAt, updatedAt }`.
+- `users/{uid}/journal/{entryId}`: must include `createdAt` timestamps for monthly counts.
+- `users/{uid}/dreams/{entryId}`: `{ content, analysis, crystalSuggestions: [{ name, reason, usage }], crystalsUsed: string[], dreamDate, createdAt, updatedAt, mood?, moonPhase? }`.
+- `checkoutSessions/{sessionId}`: ephemeral Stripe checkout metadata `{ uid, tier, priceId, mode, status, createdAt, completedAt? }` written by the Cloud Functions to help the web client poll completion.
+
+## Local caching
+- AppState crystals: `app_state_crystals`
+- Recent identifications: `app_state_recent_identifications`
+- Settings snapshot: `app_state_settings`
+- Collection cache/logs: `crystal_collection_v2`, `crystal_usage_logs_v2`
+- Auth bootstrap snapshots: `user_settings_snapshot`, `user_plan_snapshot`
+
+## Paywall & upgrade workflow
+1. Settings/Profile push `/subscription` (registered in `main.dart`).
+2. `SubscriptionScreen` initializes `EnhancedPaymentService`, fetches offerings (RevenueCat packages on mobile, in-memory `MockPackage` descriptors on web), and reads the cached `SubscriptionStatus`.
+3. **Mobile:** `purchasePremium/Pro/Founders` proxy to RevenueCat; `REVENUECAT_API_KEY` must be provided or the UI will surface a graceful error.
+4. **Web:** `purchase*` invokes the `createStripeCheckoutSession` callable which writes `checkoutSessions/{sessionId}` and returns the Stripe-hosted checkout URL. The client opens the URL, shows a “Complete checkout” banner, and calls `finalizeStripeCheckoutSession` when the user returns.
+5. Successful verification updates `users/{uid}` (`subscriptionTier`, `subscriptionWillRenew`, etc.) and the cached SharedPreferences tier so downstream widgets react immediately.
+
+## Deployment checklist
+1. Run `flutter pub get` and ensure `firebase login`/`firebase use` target the correct project.
+2. Provide the Dart defines above (or configure CI secrets) before building.
+3. `flutter build web --dart-define=...` followed by `firebase deploy --only hosting` for web.
+4. Update `functions/.runtimeconfig.json` with Gemini/RevenueCat/etc. secrets and deploy via `firebase deploy --only functions` when backend changes.
+5. Verify `firestore.rules` covers `users/{uid}/collection*`, `usage`, `journal`, `identifications`, and `plan`; adjust before shipping.
+
+## Troubleshooting tips
+- Settings screen shows inline error banners when Firestore writes fail—check console logs for the actual exception.
+- Account usage bars fall back to Explorer limits when `users/{uid}/plan` or `usage/{uid_ymd}` is missing.
+- Collection sync errors populate `CollectionServiceV2.lastError`; retry `syncWithBackend()` after fixing security rules/network.
+- Stripe checkout failures bubble up via snackbars; inspect `functions:log` for `createStripeCheckoutSession` / `finalizeStripeCheckoutSession` output and confirm `stripe.*` config values are set.
+- Ads default to Google test IDs when no AdMob env values are present—supply real IDs before production builds.
+
+## Agent context
+- Always route premium upsells to `/subscription` so paywall logic stays centralized.
+- Use `CollectionServiceV2` for collection mutations to keep Firestore and the local cache aligned.
+- Prefer `AppState` helpers when adjusting settings/usage so SharedPreferences mirrors stay consistent.

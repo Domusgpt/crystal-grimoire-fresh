@@ -349,8 +349,8 @@ class EconomyService extends ChangeNotifier {
     return {
       'extra_identify': '🔍 Extra identification: 1 SC',
       'extra_guidance': '✨ Extra guidance: 1 SC',
-      'priority_queue': '⚡ Priority processing: 2 SC (coming soon)',
-      'theme_unlock': '🎨 Unlock theme: 5 SC (coming soon)',
+      'priority_queue': '⚡ Priority processing: 2 SC (roadmap feature)',
+      'theme_unlock': '🎨 Unlock theme: 5 SC (roadmap feature)',
     };
   }
 
