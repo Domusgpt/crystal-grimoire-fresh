@@ -220,46 +220,137 @@ exports.getCrystalGuidance = onCall(
 exports.createUserDocument = onDocumentCreated('users/{userId}', async (event) => {
   try {
     const userId = event.params.userId;
-    const userData = event.data?.data();
-    
-    if (!userData) {
-      console.log(`No user data found for ${userId}`);
-      return;
-    }
-    
+    const userData = event.data?.data() || {};
+
     console.log(`🆕 Creating user document for ${userId}`);
-    
-    // Initialize user's subcollections and default data
+
     const userRef = db.collection('users').doc(userId);
-    
-    // Set default user profile data
-    const defaultProfile = {
-      uid: userId,
-      email: userData.email || '',
-      displayName: userData.displayName || 'Crystal Seeker',
-      photoURL: userData.photoURL || null,
-      createdAt: FieldValue.serverTimestamp(),
-      lastLoginAt: FieldValue.serverTimestamp(),
-      subscriptionTier: 'free',
-      subscriptionStatus: 'active',
-      monthlyIdentifications: 0,
-      totalIdentifications: 0,
-      metaphysicalQueries: 0,
-      settings: {
-        notifications: true,
-        newsletter: true,
-        darkMode: true,
-      },
+
+    const profileFromDoc =
+      userData.profile && typeof userData.profile === 'object' ? { ...userData.profile } : {};
+
+    const profile = { ...profileFromDoc };
+    profile.uid = userId;
+    profile.displayName =
+      profile.displayName || userData.displayName || userData.name || 'Crystal Seeker';
+    profile.photoURL = profile.photoURL ?? userData.photoURL ?? userData.photoUrl ?? null;
+    profile.lastLoginAt = FieldValue.serverTimestamp();
+
+    const subscription = profile.subscription && typeof profile.subscription === 'object'
+      ? { ...profile.subscription }
+      : {};
+    subscription.tier = subscription.tier || userData.subscriptionTier || 'free';
+    subscription.status = subscription.status || userData.subscriptionStatus || 'active';
+    if (subscription.expiresAt === undefined && userData.subscriptionExpiresAt !== undefined) {
+      subscription.expiresAt = userData.subscriptionExpiresAt;
+    }
+    if (subscription.willRenew === undefined && userData.subscriptionWillRenew !== undefined) {
+      subscription.willRenew = userData.subscriptionWillRenew;
+    }
+    subscription.updatedAt = FieldValue.serverTimestamp();
+    profile.subscription = subscription;
+
+    const usage = profile.usage && typeof profile.usage === 'object' ? { ...profile.usage } : {};
+    usage.monthlyIdentifications =
+      usage.monthlyIdentifications ?? userData.monthlyIdentifications ?? 0;
+    usage.totalIdentifications =
+      usage.totalIdentifications ?? userData.totalIdentifications ?? 0;
+    usage.metaphysicalQueries =
+      usage.metaphysicalQueries ?? userData.metaphysicalQueries ?? 0;
+    profile.usage = usage;
+
+    const credits = profile.credits && typeof profile.credits === 'object' ? { ...profile.credits } : {};
+    credits.daily = credits.daily ?? userData.dailyCredits ?? 3;
+    credits.total = credits.total ?? userData.totalCredits ?? 0;
+    profile.credits = credits;
+
+    if (!profile.birthChart && userData.birthChart) {
+      profile.birthChart = userData.birthChart;
+    }
+    if (!profile.preferences && userData.preferences) {
+      profile.preferences = userData.preferences;
+    }
+    if (!profile.favoriteCategories && userData.favoriteCategories) {
+      profile.favoriteCategories = userData.favoriteCategories;
+    }
+    if (!profile.ownedCrystalIds && userData.ownedCrystalIds) {
+      profile.ownedCrystalIds = userData.ownedCrystalIds;
+    }
+    if (!profile.stats && userData.stats) {
+      profile.stats = userData.stats;
+    }
+    if (!profile.experience && userData.experience) {
+      profile.experience = userData.experience;
+    }
+    if (!profile.location && userData.location) {
+      profile.location = userData.location;
+    }
+
+    const defaultSettings = {
+      notifications: true,
+      newsletter: true,
+      darkMode: true,
     };
-    
-    await userRef.set(defaultProfile, { merge: true });
-    
-    // Initialize empty collections
+    const settings =
+      userData.settings && typeof userData.settings === 'object'
+        ? { ...defaultSettings, ...userData.settings }
+        : defaultSettings;
+
+    const payload = {
+      email: userData.email || '',
+      profile,
+      settings,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (!userData.createdAt) {
+      payload.createdAt = FieldValue.serverTimestamp();
+    }
+
+    await userRef.set(payload, { merge: true });
+
+    const cleanup = {};
+    [
+      'uid',
+      'displayName',
+      'photoURL',
+      'photoUrl',
+      'subscriptionTier',
+      'subscriptionStatus',
+      'subscriptionExpiresAt',
+      'subscriptionWillRenew',
+      'subscriptionUpdatedAt',
+      'monthlyIdentifications',
+      'totalIdentifications',
+      'metaphysicalQueries',
+      'dailyCredits',
+      'totalCredits',
+      'lastLoginAt',
+      'lastActive',
+      'name',
+      'tier',
+      'birthChart',
+      'preferences',
+      'favoriteCategories',
+      'ownedCrystalIds',
+      'stats',
+      'experience',
+      'location',
+    ].forEach((field) => {
+      if (userData[field] !== undefined) {
+        cleanup[field] = FieldValue.delete();
+      }
+    });
+
+    if (Object.keys(cleanup).length > 0) {
+      await userRef.update(cleanup);
+    }
+
     await userRef.collection('crystals').doc('_init').set({ created: FieldValue.serverTimestamp() });
     await userRef.collection('journal').doc('_init').set({ created: FieldValue.serverTimestamp() });
-    
+
     console.log(`✅ User document created successfully for ${userId}`);
-    
+
   } catch (error) {
     console.error('❌ Error creating user document:', error);
   }
@@ -278,20 +369,31 @@ exports.updateUserProfile = onCall(
       const updates = request.data;
       
       // Validate allowed fields
-      const allowedFields = [
-        'displayName', 'photoURL', 'settings', 'birthChart', 
-        'preferences', 'location', 'experience'
-      ];
-      
+      const fieldMap = {
+        displayName: 'profile.displayName',
+        photoURL: 'profile.photoURL',
+        birthChart: 'profile.birthChart',
+        preferences: 'profile.preferences',
+        location: 'profile.location',
+        experience: 'profile.experience',
+      };
+
       const validUpdates = {};
       for (const [key, value] of Object.entries(updates)) {
-        if (allowedFields.includes(key)) {
-          validUpdates[key] = value;
+        if (key === 'settings' && typeof value === 'object') {
+          validUpdates.settings = value;
+        } else if (fieldMap[key]) {
+          validUpdates[fieldMap[key]] = value;
         }
       }
-      
+
+      if (Object.keys(validUpdates).length === 0) {
+        return { success: true, message: 'No valid updates provided' };
+      }
+
       validUpdates.updatedAt = FieldValue.serverTimestamp();
-      
+      validUpdates['profile.updatedAt'] = FieldValue.serverTimestamp();
+
       await db.collection('users').doc(userId).update(validUpdates);
       
       console.log(`✅ Profile updated for user ${userId}`);
@@ -402,12 +504,14 @@ exports.trackUsage = onCall(
       
       if (action === 'crystal_identification') {
         await userRef.update({
-          totalIdentifications: FieldValue.increment(1),
-          monthlyIdentifications: FieldValue.increment(1),
+          'profile.usage.totalIdentifications': FieldValue.increment(1),
+          'profile.usage.monthlyIdentifications': FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
         });
       } else if (action === 'metaphysical_query') {
         await userRef.update({
-          metaphysicalQueries: FieldValue.increment(1),
+          'profile.usage.metaphysicalQueries': FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
         });
       }
       

@@ -275,45 +275,135 @@ class AuthService extends ChangeNotifier {
   // Private helper methods
   static Future<void> _createUserDocument(User user) async {
     final userDoc = _firestore.collection('users').doc(user.uid);
-    
-    final userData = {
-      'uid': user.uid,
-      'email': user.email,
-      'displayName': user.displayName ?? 'Crystal Seeker',
-      'photoURL': user.photoURL,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastLoginAt': FieldValue.serverTimestamp(),
-      'subscriptionTier': 'free',
-      'subscriptionStatus': 'active',
-      'monthlyIdentifications': 0,
-      'totalIdentifications': 0,
-      'metaphysicalQueries': 0,
-      'settings': {
-        'notifications': true,
-        'newsletter': true,
-        'darkMode': true,
-      },
+    final existingDoc = await userDoc.get();
+    final existingData = existingDoc.data();
+
+    Map<String, dynamic> _asMap(dynamic value) {
+      if (value is Map<String, dynamic>) {
+        return Map<String, dynamic>.from(value);
+      }
+      if (value is Map) {
+        return value.map((key, dynamic val) => MapEntry(key.toString(), val));
+      }
+      return <String, dynamic>{};
+    }
+
+    final profile = _asMap(existingData?['profile']);
+    profile['uid'] = user.uid;
+    profile['displayName'] =
+        user.displayName ?? profile['displayName'] ?? existingData?['displayName'] ?? 'Crystal Seeker';
+    if (user.photoURL != null || profile['photoURL'] != null || existingData?['photoURL'] != null) {
+      profile['photoURL'] = user.photoURL ?? profile['photoURL'] ?? existingData?['photoURL'];
+    }
+    profile['lastLoginAt'] = FieldValue.serverTimestamp();
+
+    final subscription = _asMap(profile['subscription']);
+    subscription['tier'] =
+        subscription['tier'] ?? existingData?['subscriptionTier'] ?? 'free';
+    subscription['status'] =
+        subscription['status'] ?? existingData?['subscriptionStatus'] ?? 'active';
+    if (subscription['expiresAt'] == null && existingData?['subscriptionExpiresAt'] != null) {
+      subscription['expiresAt'] = existingData?['subscriptionExpiresAt'];
+    }
+    if (subscription['willRenew'] == null && existingData?['subscriptionWillRenew'] != null) {
+      subscription['willRenew'] = existingData?['subscriptionWillRenew'];
+    }
+    if (subscription['updatedAt'] == null && existingData?['subscriptionUpdatedAt'] != null) {
+      subscription['updatedAt'] = existingData?['subscriptionUpdatedAt'];
+    }
+    subscription['updatedAt'] = FieldValue.serverTimestamp();
+    profile['subscription'] = subscription;
+
+    final usage = _asMap(profile['usage']);
+    usage['monthlyIdentifications'] = usage['monthlyIdentifications'] ??
+        existingData?['monthlyIdentifications'] ?? 0;
+    usage['totalIdentifications'] = usage['totalIdentifications'] ??
+        existingData?['totalIdentifications'] ?? 0;
+    usage['metaphysicalQueries'] = usage['metaphysicalQueries'] ??
+        existingData?['metaphysicalQueries'] ?? 0;
+    profile['usage'] = usage;
+
+    final credits = _asMap(profile['credits']);
+    credits['daily'] = credits['daily'] ?? existingData?['dailyCredits'] ?? 3;
+    credits['total'] = credits['total'] ?? existingData?['totalCredits'] ?? 0;
+    profile['credits'] = credits;
+
+    if (!profile.containsKey('birthChart') && existingData?['birthChart'] != null) {
+      profile['birthChart'] = existingData?['birthChart'];
+    }
+    if (!profile.containsKey('preferences') && existingData?['preferences'] != null) {
+      profile['preferences'] = existingData?['preferences'];
+    }
+    if (!profile.containsKey('favoriteCategories') &&
+        existingData?['favoriteCategories'] != null) {
+      profile['favoriteCategories'] = existingData?['favoriteCategories'];
+    }
+    if (!profile.containsKey('ownedCrystalIds') &&
+        existingData?['ownedCrystalIds'] != null) {
+      profile['ownedCrystalIds'] = existingData?['ownedCrystalIds'];
+    }
+    if (!profile.containsKey('stats') && existingData?['stats'] != null) {
+      profile['stats'] = existingData?['stats'];
+    }
+    if (!profile.containsKey('experience') && existingData?['experience'] != null) {
+      profile['experience'] = existingData?['experience'];
+    }
+    if (!profile.containsKey('location') && existingData?['location'] != null) {
+      profile['location'] = existingData?['location'];
+    }
+
+    final defaultSettings = {
+      'notifications': true,
+      'newsletter': true,
+      'darkMode': true,
     };
-    
+    final settings = _asMap(existingData?['settings']);
+    if (settings.isEmpty) {
+      settings.addAll(defaultSettings);
+    }
+
+    final userData = <String, dynamic>{
+      'email': user.email ?? existingData?['email'] ?? '',
+      'profile': profile,
+      'settings': settings,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (!existingDoc.exists || existingData?['createdAt'] == null) {
+      userData['createdAt'] = FieldValue.serverTimestamp();
+    }
+
     await userDoc.set(userData, SetOptions(merge: true));
   }
-  
+
   static Future<void> _syncUserData(User user) async {
     final userDoc = await _firestore.collection('users').doc(user.uid).get();
-    
+
     if (userDoc.exists) {
       final data = userDoc.data()!;
-      
+
       // Update last login
       await userDoc.reference.update({
-        'lastLoginAt': FieldValue.serverTimestamp(),
+        'profile.lastLoginAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
-      
+
       // Sync subscription tier to local storage
-      if (data['subscriptionTier'] != null) {
-        await StorageService.saveSubscriptionTier(data['subscriptionTier']);
+      final profileData = data['profile'];
+      Map<String, dynamic>? profile;
+      if (profileData is Map<String, dynamic>) {
+        profile = profileData;
       }
-      
+      final subscriptionData = profile?['subscription'];
+      Map<String, dynamic>? subscription;
+      if (subscriptionData is Map<String, dynamic>) {
+        subscription = subscriptionData;
+      }
+      final tier = subscription?['tier'] ?? data['subscriptionTier']; // Legacy support
+      if (tier != null) {
+        await StorageService.saveSubscriptionTier(tier);
+      }
+
       // Sync other settings
       // TODO: Implement more data syncing as needed
     } else {
