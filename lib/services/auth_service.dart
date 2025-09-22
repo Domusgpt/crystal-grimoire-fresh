@@ -227,6 +227,22 @@ class AuthService extends ChangeNotifier {
       await StorageService.clearUserData();
     }
   }
+
+  static Future<void> signOutAndRedirect(BuildContext context) async {
+    try {
+      await signOut();
+      if (!context.mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/auth-check', (route) => false);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to sign out: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
   
   // Delete account
   static Future<void> deleteAccount() async {
@@ -283,6 +299,7 @@ class AuthService extends ChangeNotifier {
       'photoURL': user.photoURL,
       'createdAt': FieldValue.serverTimestamp(),
       'lastLoginAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
       'subscriptionTier': 'free',
       'subscriptionStatus': 'active',
       'monthlyIdentifications': 0,
@@ -314,8 +331,30 @@ class AuthService extends ChangeNotifier {
         await StorageService.saveSubscriptionTier(data['subscriptionTier']);
       }
       
-      // Sync other settings
-      // TODO: Implement more data syncing as needed
+      // Cache latest settings locally for offline bootstrap
+      final settings = data['settings'];
+      if (settings is Map<String, dynamic>) {
+        await StorageService.saveUserSettings(settings);
+      } else {
+        await StorageService.clearUserSettings();
+      }
+
+      // Cache plan snapshot if available
+      try {
+        final planDoc = await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('plan')
+            .doc('active')
+            .get();
+        if (planDoc.exists && planDoc.data() != null) {
+          await StorageService.savePlanSnapshot(planDoc.data()!);
+        } else {
+          await StorageService.clearPlanSnapshot();
+        }
+      } catch (e) {
+        print('Failed to cache plan snapshot: $e');
+      }
     } else {
       // Create user document if it doesn't exist
       await _createUserDocument(user);

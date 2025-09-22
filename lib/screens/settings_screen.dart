@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:provider/provider.dart';
-import '../widgets/common/mystical_button.dart';
-import '../widgets/animations/mystical_animations.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
+import '../services/environment_config.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -21,6 +21,318 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _vibrationEnabled = true;
   String _meditationReminder = 'Daily';
   String _crystalReminder = 'Weekly';
+  bool _shareUsageData = true;
+  bool _contentWarnings = true;
+  String _selectedLanguage = 'en';
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  User? _user;
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _errorMessage;
+  Map<String, dynamic> _settings = {};
+  final EnvironmentConfig _config = EnvironmentConfig.instance;
+
+  static const Map<String, String> _languages = {
+    'en': 'English',
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'pt': 'Portuguese',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      _user = FirebaseAuth.instance.currentUser;
+      if (_user == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final doc = await _firestore.collection('users').doc(_user!.uid).get();
+      final rawSettings = doc.data()?['settings'] ?? {};
+      final merged = <String, dynamic>{
+        'notifications': rawSettings['notifications'] ?? true,
+        'darkMode': rawSettings['darkMode'] ?? true,
+        'sound': rawSettings['sound'] ?? true,
+        'vibration': rawSettings['vibration'] ?? true,
+        'meditationReminder': rawSettings['meditationReminder'] ?? 'Daily',
+        'crystalReminder': rawSettings['crystalReminder'] ?? 'Weekly',
+        'shareUsageData': rawSettings['shareUsageData'] ?? true,
+        'contentWarnings': rawSettings['contentWarnings'] ?? true,
+        'language': rawSettings['language'] ?? 'en',
+      };
+
+      if (!mounted) return;
+      setState(() {
+        _settings = merged;
+        _notificationsEnabled = merged['notifications'];
+        _darkModeEnabled = merged['darkMode'];
+        _soundEnabled = merged['sound'];
+        _vibrationEnabled = merged['vibration'];
+        _meditationReminder = merged['meditationReminder'];
+        _crystalReminder = merged['crystalReminder'];
+        _shareUsageData = merged['shareUsageData'];
+        _contentWarnings = merged['contentWarnings'];
+        _selectedLanguage = merged['language'];
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to load settings: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _showSnack(String message, {Color background = Colors.amber}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: background,
+      ),
+    );
+  }
+
+  Future<void> _openWebsiteLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.isEmpty) {
+      _showSnack('Link is not configured yet.', background: Colors.orange);
+      return;
+    }
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
+      if (!launched) {
+        _showSnack('Unable to open link. Please try again later.', background: Colors.redAccent);
+      }
+    } catch (e) {
+      _showSnack('Failed to open link: $e', background: Colors.redAccent);
+    }
+  }
+
+  Future<void> _openSupportChannel() async {
+    if (_config.supportUrl.isNotEmpty) {
+      await _openWebsiteLink(_config.supportUrl);
+      return;
+    }
+
+    final mailUri = Uri(
+      scheme: 'mailto',
+      path: _config.supportEmail,
+      queryParameters: {
+        'subject': 'Crystal Grimoire Support',
+      },
+    );
+
+    try {
+      await launchUrl(mailUri, mode: LaunchMode.platformDefault);
+    } catch (e) {
+      _showSnack('Failed to open mail client: $e', background: Colors.redAccent);
+    }
+  }
+
+  Future<void> _persistSettings({bool showMessage = false}) async {
+    if (_user == null) {
+      setState(() {
+        _errorMessage = 'You must be signed in to update settings';
+      });
+      return;
+    }
+
+    final payload = <String, dynamic>{
+      ..._settings,
+      'notifications': _notificationsEnabled,
+      'darkMode': _darkModeEnabled,
+      'sound': _soundEnabled,
+      'vibration': _vibrationEnabled,
+      'meditationReminder': _meditationReminder,
+      'crystalReminder': _crystalReminder,
+      'shareUsageData': _shareUsageData,
+      'contentWarnings': _contentWarnings,
+      'language': _selectedLanguage,
+    };
+
+    setState(() {
+      _isSaving = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _firestore.collection('users').doc(_user!.uid).set({
+        'settings': payload,
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      setState(() {
+        _settings = payload;
+        _isSaving = false;
+      });
+
+      if (showMessage && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Settings updated'),
+            backgroundColor: Colors.purple[400],
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to save settings: $e';
+        _isSaving = false;
+      });
+    }
+  }
+
+  String get _languageLabel => _languages[_selectedLanguage] ?? 'English';
+
+  Future<void> _showLanguageSheet() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A3A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      builder: (context) {
+        return ListView(
+          shrinkWrap: true,
+          children: _languages.entries.map((entry) {
+            return RadioListTile<String>(
+              value: entry.key,
+              groupValue: _selectedLanguage,
+              onChanged: (value) {
+                Navigator.pop(context, value);
+              },
+              activeColor: Colors.purple,
+              title: Text(
+                entry.value,
+                style: GoogleFonts.crimsonText(color: Colors.white),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+
+    if (selected != null && selected != _selectedLanguage) {
+      setState(() {
+        _selectedLanguage = selected;
+      });
+      _persistSettings(showMessage: true);
+    }
+  }
+
+  Future<void> _showPrivacySheet() async {
+    final result = await showModalBottomSheet<Map<String, bool>>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A3A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      builder: (context) {
+        bool shareUsage = _shareUsageData;
+        bool contentWarnings = _contentWarnings;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Privacy & Safety',
+                    style: GoogleFonts.cinzel(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    value: shareUsage,
+                    onChanged: (value) {
+                      setModalState(() => shareUsage = value);
+                    },
+                    activeColor: Colors.purple,
+                    title: Text(
+                      'Share anonymized usage analytics',
+                      style: GoogleFonts.crimsonText(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      'Helps improve guidance accuracy and feature planning',
+                      style: GoogleFonts.crimsonText(color: Colors.white70),
+                    ),
+                  ),
+                  SwitchListTile(
+                    value: contentWarnings,
+                    onChanged: (value) {
+                      setModalState(() => contentWarnings = value);
+                    },
+                    activeColor: Colors.purple,
+                    title: Text(
+                      'Enable content warnings',
+                      style: GoogleFonts.crimsonText(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      'Warns before sensitive dream or ritual insights',
+                      style: GoogleFonts.crimsonText(color: Colors.white70),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context, {
+                          'shareUsageData': shareUsage,
+                          'contentWarnings': contentWarnings,
+                        });
+                      },
+                      icon: const Icon(Icons.save),
+                      label: const Text('Save'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      setState(() {
+        _shareUsageData = result['shareUsageData'] ?? _shareUsageData;
+        _contentWarnings = result['contentWarnings'] ?? _contentWarnings;
+      });
+      _persistSettings(showMessage: true);
+    }
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -37,35 +349,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionTitle('Notifications'),
-            _buildNotificationSettings(),
-            const SizedBox(height: 30),
-            
-            _buildSectionTitle('App Preferences'),
-            _buildAppPreferences(),
-            const SizedBox(height: 30),
-            
-            _buildSectionTitle('Reminders'),
-            _buildReminderSettings(),
-            const SizedBox(height: 30),
-            
-            _buildSectionTitle('Account'),
-            _buildAccountSettings(),
-            const SizedBox(height: 30),
-            
-            _buildSectionTitle('About'),
-            _buildAboutSection(),
-          ],
-        ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.purple),
+            )
+          : Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_errorMessage != null) _buildErrorBanner(),
+                      _buildSectionTitle('Notifications'),
+                      _buildNotificationSettings(),
+                      const SizedBox(height: 30),
+
+                      _buildSectionTitle('App Preferences'),
+                      _buildAppPreferences(),
+                      const SizedBox(height: 30),
+
+                      _buildSectionTitle('Reminders'),
+                      _buildReminderSettings(),
+                      const SizedBox(height: 30),
+
+                      _buildSectionTitle('Account'),
+                      _buildAccountSettings(),
+                      const SizedBox(height: 30),
+
+                      _buildSectionTitle('About'),
+                      _buildAboutSection(),
+                    ],
+                  ),
+                ),
+                if (_isSaving)
+                  const Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    child: LinearProgressIndicator(
+                      minHeight: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildErrorBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _errorMessage ?? '',
+              style: GoogleFonts.crimsonText(
+                color: Colors.white,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
-  
+
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
@@ -110,7 +469,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _notificationsEnabled = value;
               });
-              _saveSettings();
+              _persistSettings();
             },
             activeColor: Colors.purple,
           ),
@@ -135,7 +494,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _soundEnabled = value;
               });
-              _saveSettings();
+              _persistSettings();
             },
             activeColor: Colors.purple,
           ),
@@ -160,7 +519,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _vibrationEnabled = value;
               });
-              _saveSettings();
+              _persistSettings();
             },
             activeColor: Colors.purple,
           ),
@@ -199,7 +558,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _darkModeEnabled = value;
               });
-              _saveSettings();
+              _persistSettings();
             },
             activeColor: Colors.purple,
           ),
@@ -213,7 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             subtitle: Text(
-              'English',
+              _languageLabel,
               style: GoogleFonts.crimsonText(
                 color: Colors.white70,
                 fontSize: 14,
@@ -224,15 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: Colors.white54,
               size: 16,
             ),
-            onTap: () {
-              // Language selection would go here
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Language selection coming soon'),
-                  backgroundColor: Colors.purple,
-                ),
-              );
-            },
+            onTap: _showLanguageSheet,
           ),
         ],
       ),
@@ -278,7 +629,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {
                   _meditationReminder = value!;
                 });
-                _saveSettings();
+                _persistSettings();
               },
             ),
           ),
@@ -312,7 +663,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {
                   _crystalReminder = value!;
                 });
-                _saveSettings();
+                _persistSettings();
               },
             ),
           ),
@@ -382,15 +733,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fontSize: 18,
               ),
             ),
-            onTap: () {
-              // Privacy settings would go here
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Privacy settings coming soon'),
-                  backgroundColor: Colors.purple,
-                ),
-              );
-            },
+            onTap: _showPrivacySheet,
           ),
           ListTile(
             leading: Icon(Icons.logout, color: Colors.red),
@@ -429,10 +772,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               );
-              
+
               if (confirm == true) {
-                await AuthService.signOut();
-                Navigator.pushReplacementNamed(context, '/login');
+                await AuthService.signOutAndRedirect(context);
               }
             },
           ),
@@ -477,9 +819,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fontSize: 18,
               ),
             ),
-            onTap: () {
-              // Terms of service
-            },
+            onTap: () => _openWebsiteLink(_config.termsUrl),
           ),
           ListTile(
             leading: Icon(Icons.privacy_tip, color: Colors.purple),
@@ -490,9 +830,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fontSize: 18,
               ),
             ),
-            onTap: () {
-              // Privacy policy
-            },
+            onTap: () => _openWebsiteLink(_config.privacyUrl),
           ),
           ListTile(
             leading: Icon(Icons.help, color: Colors.purple),
@@ -503,18 +841,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fontSize: 18,
               ),
             ),
-            onTap: () {
-              // Help & support
-            },
+            onTap: _openSupportChannel,
           ),
         ],
       ),
     );
   }
   
-  void _saveSettings() {
-    // Save settings to SharedPreferences or Firebase
-    // This would be implemented with actual persistence
-    print('Settings saved');
-  }
 }

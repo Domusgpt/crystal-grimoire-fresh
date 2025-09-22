@@ -19,9 +19,24 @@ service cloud.firestore {
       return isAuth() && request.auth.token.email_verified == true;
     }
     
+    function hasAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields.concat(['createdAt', 'updatedAt']));
+    }
+
     function hasValidData(fields) {
-      return request.resource.data.keys().hasAll(fields) &&
-             request.resource.data.keys().hasOnly(fields.concat(['createdAt', 'updatedAt']));
+      return hasAllowedFields(fields) && request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOptionalTimestamp(fieldName) {
+      return !request.resource.data.keys().hasAny([fieldName]) ||
+             request.resource.data[fieldName] is timestamp ||
+             request.resource.data[fieldName] == null;
+    }
+
+    function isStringList(fieldName, maxItems) {
+      return !request.resource.data.keys().hasAny([fieldName]) ||
+             (request.resource.data[fieldName] is list &&
+              request.resource.data[fieldName].size() <= maxItems);
     }
     
     function isRecentTimestamp() {
@@ -38,18 +53,36 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, update: if isOwner(userId) && isValidEmail();
       allow create: if isAuth() && request.auth.uid == userId && isValidEmail() &&
-                   hasValidData(['email', 'profile', 'settings']) &&
                    request.resource.data.email == request.auth.token.email &&
-                   isRecentTimestamp();
+                   hasAllowedFields([
+                     'uid', 'email', 'displayName', 'photoURL', 'lastLoginAt',
+                     'subscriptionTier', 'subscriptionStatus', 'subscriptionProvider',
+                     'subscriptionWillRenew', 'subscriptionExpiresAt', 'subscriptionBillingTier',
+                     'monthlyIdentifications', 'totalIdentifications', 'metaphysicalQueries',
+                     'settings', 'effectiveLimits', 'isDevelopmentAccount', 'role', 'profile'
+                   ]) &&
+                   hasOptionalTimestamp('createdAt') &&
+                   hasOptionalTimestamp('lastLoginAt');
       allow delete: if false; // Use Cloud Function for GDPR compliance
-      
+
       // Personal crystal collection
       match /collection/{crystalId} {
-        allow read, write: if isOwner(userId);
-        allow create: if isOwner(userId) &&
-                     hasValidData(['libraryRef', 'notes', 'tags', 'addedAt']) &&
-                     isValidStringLength(request.resource.data.notes, 0, 1000) &&
-                     isRecentTimestamp();
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+                     hasAllowedFields([
+                       'libraryRef', 'crystal', 'notes', 'tags', 'addedAt', 'dateAdded',
+                       'source', 'location', 'price', 'size', 'quality', 'primaryUses',
+                       'usageCount', 'userRating', 'images', 'isActive', 'isFavorite',
+                       'customProperties', 'userId'
+                     ]) &&
+                     (!request.resource.data.keys().hasAny(['notes']) ||
+                        isValidStringLength(request.resource.data.notes, 0, 2000)) &&
+                     isStringList('tags', 50) &&
+                     isStringList('primaryUses', 50) &&
+                     isStringList('images', 20) &&
+                     hasOptionalTimestamp('addedAt') &&
+                     hasOptionalTimestamp('dateAdded');
+        allow delete: if isOwner(userId);
       }
       
       // Crystal identifications with size limits
@@ -97,13 +130,20 @@ service cloud.firestore {
       
       // Dream journal with privacy protection
       match /dreams/{dreamId} {
-        allow read, write: if isOwner(userId);
-        allow create: if isOwner(userId) &&
-                     hasValidData(['content', 'analysis', 'crystalSuggestions', 'dreamDate']) &&
-                     isValidStringLength(request.resource.data.content, 10, 5000);
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+                     hasAllowedFields([
+                       'content', 'analysis', 'crystalSuggestions', 'dreamDate',
+                       'crystalsUsed', 'mood', 'moonPhase', 'journalPrompt', 'tags',
+                       'title', 'insights'
+                     ]) &&
+                     isValidStringLength(request.resource.data.content, 10, 5000) &&
+                     isStringList('crystalsUsed', 25) &&
+                     isStringList('tags', 25) &&
+                     hasOptionalTimestamp('dreamDate');
       }
     }
-    
+
     // Crystal library with admin controls
     match /crystal_library/{crystalId} {
       allow read: if isAuth();
@@ -120,7 +160,11 @@ service cloud.firestore {
     match /marketplace/{listingId} {
       allow read: if isAuth();
       allow create: if isAuth() &&
-                   hasValidData(['title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description']) &&
+                   hasAllowedFields([
+                     'title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description',
+                     'sellerName', 'category', 'imageUrl', 'isVerifiedSeller', 'rating',
+                     'tags', 'location', 'weightGrams'
+                   ]) &&
                    request.resource.data.sellerId == request.auth.uid &&
                    request.resource.data.status == 'active' &&
                    request.resource.data.priceCents is int &&
@@ -128,6 +172,11 @@ service cloud.firestore {
                    request.resource.data.priceCents <= 100000 && // Max $1000
                    isValidStringLength(request.resource.data.title, 5, 80) &&
                    isValidStringLength(request.resource.data.description, 0, 2000) &&
+                   (request.resource.data.sellerName == null || isValidStringLength(request.resource.data.sellerName, 2, 60)) &&
+                   (request.resource.data.category == null || request.resource.data.category in ['All', 'Raw', 'Tumbled', 'Clusters', 'Jewelry', 'Rare']) &&
+                   (request.resource.data.imageUrl == null || request.resource.data.imageUrl is string) &&
+                   (request.resource.data.isVerifiedSeller == null || request.resource.data.isVerifiedSeller is bool) &&
+                   (request.resource.data.rating == null || (request.resource.data.rating is number && request.resource.data.rating >= 0 && request.resource.data.rating <= 5)) &&
                    isRecentTimestamp();
       allow update: if isAuth() &&
                    resource.data.sellerId == request.auth.uid &&
