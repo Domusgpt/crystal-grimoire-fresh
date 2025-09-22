@@ -1,5 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/crystal.dart';
+import '../models/crystal_collection.dart';
 import 'usage_tracker.dart';
 import 'cache_service.dart';
 
@@ -12,6 +15,7 @@ class AppState extends ChangeNotifier {
   
   // Crystal collection
   final List<Crystal> _crystalCollection = [];
+  final List<CollectionEntry> _collectionEntries = [];
   final List<CrystalIdentification> _recentIdentifications = [];
   
   // UI state
@@ -32,6 +36,7 @@ class AppState extends ChangeNotifier {
   bool get isFirstLaunch => _isFirstLaunch;
   bool get hasSeenOnboarding => _hasSeenOnboarding;
   List<Crystal> get crystalCollection => List.unmodifiable(_crystalCollection);
+  List<CollectionEntry> get collectionEntries => List.unmodifiable(_collectionEntries);
   List<CrystalIdentification> get recentIdentifications => 
       List.unmodifiable(_recentIdentifications);
   bool get isLoading => _isLoading;
@@ -45,7 +50,7 @@ class AppState extends ChangeNotifier {
   // Computed properties
   bool get isPremiumUser => _subscriptionTier != 'free';
   bool get canIdentify => _usageStats?.canIdentify ?? true;
-  int get collectionCount => _crystalCollection.length;
+  int get collectionCount => _collectionEntries.length;
   Crystal? get favoritesCrystal => _crystalCollection.isNotEmpty ? 
       _crystalCollection.first : null;
   
@@ -244,10 +249,262 @@ class AppState extends ChangeNotifier {
   // Private helper methods
   
   Future<void> _loadCrystalCollection() async {
-    // TODO: Load from local database
-    // For now, keep in memory
+    _collectionEntries.clear();
+    _crystalCollection.clear();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return;
+    }
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final snapshot = await firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('collection')
+          .orderBy('addedAt', descending: true)
+          .get();
+
+      final entries = await Future.wait(snapshot.docs.map((doc) async {
+        final data = doc.data();
+        final libraryRef = (data['libraryRef'] ?? '').toString();
+        if (libraryRef.isEmpty) {
+          debugPrint('Skipping collection entry ${doc.id} - missing libraryRef');
+          return null;
+        }
+
+        final crystal = await _loadCrystalFromLibrary(firestore, libraryRef);
+        final tags = _asStringList(data['tags']);
+        final addedAt = _timestampToDate(data['addedAt']) ?? DateTime.now();
+        final notesValue = data['notes'];
+        final notes = notesValue is String ? notesValue : '';
+
+        return CollectionEntry(
+          id: doc.id,
+          userId: user.uid,
+          crystal: crystal,
+          dateAdded: addedAt,
+          source: 'Personal Collection',
+          location: null,
+          price: null,
+          size: 'medium',
+          quality: 'tumbled',
+          primaryUses: tags,
+          tags: tags,
+          notes: notes.trim().isNotEmpty ? notes.trim() : null,
+          images: <String>[],
+          isActive: true,
+          isFavorite: false,
+          customProperties: {
+            'documentPath': doc.reference.path,
+            'addedAt': addedAt.toIso8601String(),
+            'createdAt': _timestampToDate(data['createdAt'])?.toIso8601String(),
+            'updatedAt': _timestampToDate(data['updatedAt'])?.toIso8601String(),
+          }..removeWhere((key, value) => value == null),
+          libraryRef: libraryRef,
+        );
+      }));
+
+      final hydratedEntries = entries.whereType<CollectionEntry>().toList();
+
+      _collectionEntries
+        ..clear()
+        ..addAll(hydratedEntries);
+
+      _crystalCollection
+        ..clear()
+        ..addAll(hydratedEntries.map((entry) => entry.crystal));
+    } catch (e) {
+      debugPrint('Failed to load crystal collection: $e');
+    }
   }
-  
+
+  Future<Crystal> _loadCrystalFromLibrary(
+    FirebaseFirestore firestore,
+    String libraryRef,
+  ) async {
+    try {
+      final doc = await firestore.doc(libraryRef).get();
+      final data = doc.data();
+      if (doc.exists && data != null) {
+        final map = Map<String, dynamic>.from(data);
+        return _mapLibraryDocToCrystal(doc.id, map);
+      }
+    } catch (e) {
+      debugPrint('Failed to load library document $libraryRef: $e');
+    }
+
+    return _fallbackCrystal(libraryRef);
+  }
+
+  Crystal _mapLibraryDocToCrystal(String docId, Map<String, dynamic> data) {
+    final intents = _asStringList(data['intents']);
+    final metaphysical = data['metaphysicalProperties'];
+    final healingProps = <String>[];
+
+    if (metaphysical is Map<String, dynamic>) {
+      healingProps.addAll(_asStringList(metaphysical['healingProperties']));
+      healingProps.addAll(_asStringList(metaphysical['emotionalSupport']));
+      healingProps.addAll(_asStringList(metaphysical['spiritualUses']));
+    } else {
+      healingProps.addAll(_asStringList(data['healingProperties']));
+    }
+
+    final physicalProps = data['physicalProperties'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(data['physicalProperties'])
+        : <String, dynamic>{};
+
+    final description = data['description']?.toString() ??
+        (intents.isNotEmpty
+            ? 'Intents: ${intents.join(', ')}'
+            : 'Crystal library entry');
+
+    final imageUrls = _buildImageList(data['imageUrl'], data['imageUrls']);
+
+    return Crystal(
+      id: docId,
+      name: data['name']?.toString() ?? _formatNameFromId(docId),
+      scientificName: data['scientificName']?.toString() ?? '',
+      description: description,
+      metaphysicalProperties: intents,
+      healingProperties: healingProps,
+      chakras: _asStringList(data['chakras']),
+      elements: _asStringList(data['elements']),
+      properties: physicalProps,
+      colorDescription: physicalProps['color']?.toString() ?? '',
+      hardness: physicalProps['hardness']?.toString() ?? '',
+      formation: physicalProps['formation']?.toString() ?? '',
+      careInstructions: _stringifyCareInstructions(data['careInstructions']),
+      imageUrls: imageUrls,
+      imageUrl: imageUrls.isNotEmpty ? imageUrls.first : '',
+      planetaryRulers: _asStringList(data['planetaryRulers']),
+      zodiacSigns: _asStringList(data['zodiacSigns']),
+      crystalSystem: data['crystalSystem']?.toString() ?? 'Unknown',
+      formations: _asStringList(data['formations']),
+      chargingMethods: _extractCareList(data['careInstructions'], 'charging'),
+      cleansingMethods: _extractCareList(data['careInstructions'], 'cleansing'),
+      bestCombinations: _asStringList(data['bestCombinations']),
+      recommendedIntentions: intents,
+      vibrationFrequency: data['vibrationFrequency']?.toString() ?? 'Medium',
+      energyType: data['energyType']?.toString() ?? 'Balancing',
+      bestTimeToUse: data['bestTimeToUse']?.toString() ?? 'Anytime',
+      effectDuration: data['effectDuration']?.toString() ?? 'Hours',
+      keywords: _asStringList(data['aliases']),
+    );
+  }
+
+  Crystal _fallbackCrystal(String libraryRef) {
+    final id = libraryRef.split('/').isNotEmpty
+        ? libraryRef.split('/').last
+        : libraryRef;
+
+    return Crystal(
+      id: id,
+      name: _formatNameFromId(id),
+      scientificName: '',
+      description: 'Crystal reference $id',
+      careInstructions: 'See library entry for care guidance.',
+    );
+  }
+
+  List<String> _asStringList(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item?.toString() ?? '')
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+
+    if (value is String && value.isNotEmpty) {
+      return [value];
+    }
+
+    return <String>[];
+  }
+
+  List<String> _buildImageList(dynamic primaryImage, dynamic imageCollection) {
+    final urls = <String>[];
+
+    if (primaryImage is String && primaryImage.isNotEmpty) {
+      urls.add(primaryImage);
+    }
+
+    if (imageCollection is Iterable) {
+      urls.addAll(
+        imageCollection
+            .map((item) => item?.toString() ?? '')
+            .where((item) => item.isNotEmpty),
+      );
+    }
+
+    return urls;
+  }
+
+  List<String> _extractCareList(dynamic careData, String key) {
+    if (careData is Map<String, dynamic>) {
+      return _asStringList(careData[key]);
+    }
+    return <String>[];
+  }
+
+  String _stringifyCareInstructions(dynamic value) {
+    if (value is String) {
+      return value;
+    }
+
+    if (value is Map) {
+      final sections = <String>[];
+      value.forEach((key, instructions) {
+        final items = _asStringList(instructions);
+        if (items.isNotEmpty) {
+          sections.add('${_capitalize(key.toString())}: ${items.join(', ')}');
+        }
+      });
+
+      if (sections.isNotEmpty) {
+        return sections.join(' • ');
+      }
+    }
+
+    return 'See library entry for care guidance.';
+  }
+
+  DateTime? _timestampToDate(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  String _formatNameFromId(String id) {
+    if (id.isEmpty) {
+      return 'Unknown Crystal';
+    }
+
+    return id
+        .split(RegExp('[-_ ]+'))
+        .where((segment) => segment.isNotEmpty)
+        .map(_capitalize)
+        .join(' ');
+  }
+
+  String _capitalize(String value) {
+    if (value.isEmpty) {
+      return value;
+    }
+    if (value.length == 1) {
+      return value.toUpperCase();
+    }
+    return value[0].toUpperCase() + value.substring(1);
+  }
+
   Future<void> _saveCrystalCollection() async {
     // TODO: Save to local database
   }

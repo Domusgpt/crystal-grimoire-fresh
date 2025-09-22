@@ -1,9 +1,10 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crystal_collection.dart';
 import '../models/crystal.dart';
-import 'backend_service.dart';
 
 /// Production-ready Collection Service with proper instance management
 /// This is NOT a static service - it uses proper dependency injection
@@ -87,12 +88,16 @@ class CollectionServiceV2 extends ChangeNotifier {
     String? source,
     double? purchasePrice,
     List<String>? primaryUses,
+    List<String>? tags,
     Map<String, dynamic>? customProperties,
     String? location,
     String size = 'medium',
     String quality = 'tumbled',
     List<String>? images,
   }) async {
+    final resolvedTags = tags ?? primaryUses ?? [];
+    final libraryRef = 'crystal_library/${crystal.id}';
+
     final entry = CollectionEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       userId: 'local-user', // TODO: Get from auth service
@@ -103,11 +108,13 @@ class CollectionServiceV2 extends ChangeNotifier {
       price: purchasePrice,
       customProperties: customProperties ?? {},
       primaryUses: primaryUses ?? [],
+      tags: resolvedTags,
       images: images ?? [],
       isFavorite: false,
       size: size,
       quality: quality,
       location: location,
+      libraryRef: libraryRef,
     );
     
     _collection.add(entry);
@@ -124,6 +131,7 @@ class CollectionServiceV2 extends ChangeNotifier {
   Future<void> updateCrystal(String entryId, {
     String? notes,
     List<String>? primaryUses,
+    List<String>? tags,
     Map<String, dynamic>? customProperties,
     bool? isFavorite,
     List<String>? images,
@@ -146,6 +154,7 @@ class CollectionServiceV2 extends ChangeNotifier {
       location: entry.location,
       customProperties: customProperties ?? entry.customProperties,
       primaryUses: primaryUses ?? entry.primaryUses,
+      tags: tags ?? entry.tags,
       images: images ?? entry.images,
       isFavorite: isFavorite ?? entry.isFavorite,
       size: size ?? entry.size,
@@ -153,8 +162,9 @@ class CollectionServiceV2 extends ChangeNotifier {
       usageCount: entry.usageCount,
       userRating: userRating ?? entry.userRating,
       isActive: entry.isActive,
+      libraryRef: entry.libraryRef,
     );
-    
+
     _collection[index] = updated;
     await _saveToLocal();
     notifyListeners();
@@ -318,8 +328,53 @@ class CollectionServiceV2 extends ChangeNotifier {
   
   /// Sync single entry to backend
   Future<void> _syncEntryToBackend(CollectionEntry entry) async {
-    // TODO: Implement real backend sync
-    print('Would sync entry to backend: ${entry.id}');
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint('Skipping backend sync - no authenticated user.');
+        return;
+      }
+
+      final firestore = FirebaseFirestore.instance;
+      final docRef = firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('collection')
+          .doc(entry.id);
+
+      final resolvedLibraryRef = entry.libraryRef.isNotEmpty
+          ? entry.libraryRef
+          : 'crystal_library/${entry.crystal.id}';
+
+      final baseData = <String, dynamic>{
+        'libraryRef': resolvedLibraryRef,
+        'notes': entry.notes ?? '',
+        'tags': entry.tags,
+      };
+
+      final snapshot = await docRef.get();
+
+      if (!snapshot.exists) {
+        await docRef.set({
+          ...baseData,
+          'addedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await docRef.set({
+          ...baseData,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      _lastError = null;
+    } catch (e) {
+      final message = 'Sync failed: $e';
+      debugPrint(message);
+      _lastError = message;
+      notifyListeners();
+    }
   }
   
   /// Delete entry from backend

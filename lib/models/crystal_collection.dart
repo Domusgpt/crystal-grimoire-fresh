@@ -14,6 +14,7 @@ class CollectionEntry {
   final String size; // "small", "medium", "large", "pocket", "specimen"
   final String quality; // "raw", "tumbled", "polished", "cluster", "point"
   final List<String> primaryUses; // "meditation", "healing", "protection", "manifestation"
+  final List<String> tags; // User-defined tags for quick filtering
   final int usageCount; // How many times used
   final double userRating; // 1-5 stars
   final String? notes; // Personal notes
@@ -21,6 +22,7 @@ class CollectionEntry {
   final bool isActive; // Currently in use/displayed
   final bool isFavorite;
   final Map<String, dynamic> customProperties; // For future expansion
+  final String libraryRef; // Reference to shared library crystal document
 
   CollectionEntry({
     required this.id,
@@ -33,14 +35,17 @@ class CollectionEntry {
     required this.size,
     required this.quality,
     required this.primaryUses,
+    List<String>? tags,
     this.usageCount = 0,
     this.userRating = 0.0,
     this.notes,
     required this.images,
     this.isActive = true,
     this.isFavorite = false,
+    required this.libraryRef,
     Map<String, dynamic>? customProperties,
-  }) : customProperties = customProperties ?? {};
+  })  : tags = tags ?? [],
+        customProperties = customProperties ?? {};
 
   /// Create a new collection entry
   factory CollectionEntry.create({
@@ -52,8 +57,10 @@ class CollectionEntry {
     required String size,
     required String quality,
     List<String>? primaryUses,
+    List<String>? tags,
     String? notes,
     List<String>? images,
+    String? libraryRef,
   }) {
     return CollectionEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -66,8 +73,10 @@ class CollectionEntry {
       size: size,
       quality: quality,
       primaryUses: primaryUses ?? [],
+      tags: tags ?? primaryUses ?? [],
       images: images ?? [],
       notes: notes,
+      libraryRef: libraryRef ?? 'crystal_library/${crystal.id}',
     );
   }
 
@@ -84,6 +93,7 @@ class CollectionEntry {
       'size': size,
       'quality': quality,
       'primaryUses': primaryUses,
+      'tags': tags,
       'usageCount': usageCount,
       'userRating': userRating,
       'notes': notes,
@@ -91,11 +101,18 @@ class CollectionEntry {
       'isActive': isActive,
       'isFavorite': isFavorite,
       'customProperties': customProperties,
+      'libraryRef': libraryRef,
     };
   }
 
   /// Create from JSON
   factory CollectionEntry.fromJson(Map<String, dynamic> json) {
+    final crystalJson = Map<String, dynamic>.from(json['crystal'] ?? {});
+    final fallbackCrystalId = (crystalJson['id'] ?? json['id'] ?? '').toString();
+    final inferredLibraryRef = fallbackCrystalId.isNotEmpty
+        ? 'crystal_library/$fallbackCrystalId'
+        : '';
+
     return CollectionEntry(
       id: json['id'],
       userId: json['userId'],
@@ -107,6 +124,7 @@ class CollectionEntry {
       size: json['size'],
       quality: json['quality'],
       primaryUses: List<String>.from(json['primaryUses'] ?? []),
+      tags: List<String>.from(json['tags'] ?? json['primaryUses'] ?? []),
       usageCount: json['usageCount'] ?? 0,
       userRating: (json['userRating'] ?? 0.0).toDouble(),
       notes: json['notes'],
@@ -114,6 +132,7 @@ class CollectionEntry {
       isActive: json['isActive'] ?? true,
       isFavorite: json['isFavorite'] ?? false,
       customProperties: json['customProperties'] ?? {},
+      libraryRef: json['libraryRef'] ?? inferredLibraryRef,
     );
   }
 
@@ -126,6 +145,8 @@ class CollectionEntry {
     bool? isActive,
     bool? isFavorite,
     List<String>? primaryUses,
+    List<String>? tags,
+    String? libraryRef,
   }) {
     return CollectionEntry(
       id: id,
@@ -138,6 +159,7 @@ class CollectionEntry {
       size: size,
       quality: quality,
       primaryUses: primaryUses ?? this.primaryUses,
+      tags: tags ?? this.tags,
       usageCount: usageCount ?? this.usageCount,
       userRating: userRating ?? this.userRating,
       notes: notes ?? this.notes,
@@ -145,6 +167,7 @@ class CollectionEntry {
       isActive: isActive ?? this.isActive,
       isFavorite: isFavorite ?? this.isFavorite,
       customProperties: customProperties,
+      libraryRef: libraryRef ?? this.libraryRef,
     );
   }
 
