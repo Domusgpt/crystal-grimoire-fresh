@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../config/plan_entitlements.dart';
+import 'environment_config.dart';
 import 'storage_service.dart';
 
 class PaymentService {
-  static const String _revenueCatApiKey = 'YOUR_REVENUECAT_API_KEY'; // TODO: Replace with actual key
+  static String get _revenueCatApiKey => EnvironmentConfig.instance.revenueCatApiKey;
   static const String _entitlementIdPremium = 'premium';
   static const String _entitlementIdPro = 'pro';
   static const String _entitlementIdFounders = 'founders';
@@ -20,8 +22,13 @@ class PaymentService {
   
   // Initialize RevenueCat
   static Future<void> initialize() async {
+    if (_revenueCatApiKey.isEmpty) {
+      print('RevenueCat API key missing - skipping PaymentService initialization');
+      return;
+    }
+
     await Purchases.setLogLevel(LogLevel.debug);
-    
+
     PurchasesConfiguration configuration;
     if (Platform.isAndroid) {
       configuration = PurchasesConfiguration(_revenueCatApiKey);
@@ -62,7 +69,7 @@ class PaymentService {
           tier: 'pro',
           isActive: true,
           expiresAt: entitlement.expirationDate,
-          willRenew: !entitlement.willRenew,
+          willRenew: entitlement.willRenew,
         );
       } else if (customerInfo.entitlements.all[_entitlementIdPremium]?.isActive == true) {
         final entitlement = customerInfo.entitlements.all[_entitlementIdPremium]!;
@@ -70,7 +77,7 @@ class PaymentService {
           tier: 'premium',
           isActive: true,
           expiresAt: entitlement.expirationDate,
-          willRenew: !entitlement.willRenew,
+          willRenew: entitlement.willRenew,
         );
       } else {
         return SubscriptionStatus(
@@ -245,7 +252,7 @@ class PaymentService {
   static Future<void> _updateFirebaseSubscription(CustomerInfo customerInfo) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    
+
     String tier = 'free';
     String? expiresAt;
     bool willRenew = false;
@@ -256,22 +263,57 @@ class PaymentService {
       tier = 'pro';
       final entitlement = customerInfo.entitlements.all[_entitlementIdPro]!;
       expiresAt = entitlement.expirationDate;
-      willRenew = !entitlement.willRenew;
+      willRenew = entitlement.willRenew;
     } else if (customerInfo.entitlements.all[_entitlementIdPremium]?.isActive == true) {
       tier = 'premium';
       final entitlement = customerInfo.entitlements.all[_entitlementIdPremium]!;
       expiresAt = entitlement.expirationDate;
-      willRenew = !entitlement.willRenew;
+      willRenew = entitlement.willRenew;
     }
     
     // Update user document
-    await _firestore.collection('users').doc(user.uid).update({
+    final parsedExpiry = expiresAt != null ? DateTime.tryParse(expiresAt) : null;
+
+    final entitlements = PlanEntitlements.effectiveLimits(tier);
+    final flags = PlanEntitlements.flags(tier);
+    final lifetime = PlanEntitlements.isLifetime(tier);
+
+    await _firestore.collection('users').doc(user.uid).set({
       'subscriptionTier': tier,
       'subscriptionStatus': tier == 'free' ? 'inactive' : 'active',
-      'subscriptionExpiresAt': expiresAt,
+      'subscriptionProvider': 'revenuecat',
+      'subscriptionExpiresAt': parsedExpiry != null
+          ? Timestamp.fromDate(parsedExpiry.toUtc())
+          : null,
       'subscriptionWillRenew': willRenew,
       'subscriptionUpdatedAt': FieldValue.serverTimestamp(),
-    });
+      'subscriptionBillingTier': tier,
+      'effectiveLimits': entitlements,
+    }, SetOptions(merge: true));
+
+    final planPayload = {
+      'plan': tier,
+      'billingTier': tier,
+      'provider': 'revenuecat',
+      'effectiveLimits': entitlements,
+      'flags': flags,
+      'willRenew': willRenew,
+      'lifetime': lifetime,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (parsedExpiry != null && !lifetime) {
+      planPayload['expiresAt'] = Timestamp.fromDate(parsedExpiry.toUtc());
+    } else if (lifetime) {
+      planPayload['expiresAt'] = null;
+    }
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('plan')
+        .doc('active')
+        .set(planPayload, SetOptions(merge: true));
   }
 }
 

@@ -6,11 +6,13 @@ import 'services/auth_service.dart';
 import 'services/crystal_service.dart';
 import 'services/app_state.dart';
 import 'services/economy_service.dart';
+import 'services/collection_service_v2.dart';
 import 'screens/home_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/subscription_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 
@@ -40,6 +42,13 @@ class CrystalGrimoireApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CrystalService()),
         ChangeNotifierProvider(create: (_) => AppState()),
         ChangeNotifierProvider(create: (_) => EconomyService()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final service = CollectionServiceV2();
+            service.initialize();
+            return service;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'Crystal Grimoire',
@@ -51,6 +60,7 @@ class CrystalGrimoireApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/home': (context) => const HomeScreen(),
           '/settings': (context) => const SettingsScreen(),
+          '/subscription': (context) => const SubscriptionScreen(),
         },
       ),
     );

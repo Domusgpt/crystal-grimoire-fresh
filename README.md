@@ -1,204 +1,97 @@
-# 🔮 Crystal Grimoire - Production
+# 🔮 Crystal Grimoire
 
-**AI-Powered Crystal Identification & Mystical Guidance Platform**
+Crystal Grimoire is a Flutter web application backed by Firebase that helps crystal enthusiasts identify stones, log personal collections, capture dreams, and unlock guided rituals. The project pairs a glassmorphic interface with Google Gemini powered cloud functions, Stripe web checkout, and RevenueCat mobile entitlements.
 
-A sophisticated Flutter web application combining crystal identification, spiritual guidance, and mystical practices with stunning glassmorphic UI effects.
+## 📦 What’s in this repository
 
-## ✨ Features
+- **Flutter Web client** – Responsive UI with Provider-based state, crystal collection management, dream journal, marketplace browsing, immersive sound bath, and a `/subscription` paywall tied to shared `PlanEntitlements`.
+- **Firebase integration** – Email/Google/Apple authentication, user settings persisted in `users/{uid}`, synchronized collections and usage logs, cached plan snapshots, and Firestore-driven usage meters on the account screen.
+- **Cloud Functions (Node 20+)** – Callable endpoints for crystal identification, dream analysis, Stripe checkout orchestration, and entitlement finalization. Functions write plan metadata back into Firestore and respect App Check.
+- **Configuration tooling** – `EnvironmentConfig` centralises all API keys, Stripe price IDs, AdMob units, and support URLs through `--dart-define` values so secrets never live in source control.
+- **Documentation** – `DEVELOPER_HANDOFF.me`, `DEPLOYMENT_GUIDE.md`, and `PROJECT_STATUS.md` describe setup, data contracts, and deployment expectations for future maintainers.
 
-### 🔍 **AI Crystal Identification**
-- Advanced image recognition using Google Vision + Gemini AI
-- Complete crystal database with metaphysical properties
-- Personalized guidance based on birth chart & intentions
-- 95%+ accuracy identification rate
+## ✅ Current feature set
 
-### 🌟 **Mystical Features**
-- **Moon Rituals**: Current lunar phase calculations with personalized ritual recommendations
-- **Crystal Healing**: Chakra-based healing session layouts with guided meditations
-- **Dream Journal**: AI-powered dream analysis with crystal correlations  
-- **Sound Bath**: Crystal-matched frequencies for meditation and healing
-- **Personal Collection**: Track owned crystals with usage statistics
+| Area | Highlights |
+| --- | --- |
+| **Authentication & profile** | Email/password, Google, and Apple sign-in flows with first-party Firestore profile provisioning. Settings (notifications, language, privacy toggles) persist for each user and hydrate on launch. |
+| **Crystal tools** | Crystal identification uploads images to Cloud Functions/Gemini and stores per-user results at `users/{uid}/identifications`. Collections sync to Firestore with offline SharedPreferences cache, usage logging, and search/filter helpers. |
+| **Guidance & journaling** | Dream journal entries stream from Firestore, trigger Gemini analysis, and respect mood/moon metadata. Ritual reminders and moon data hydrate dashboards via shared services. |
+| **Economy & subscriptions** | Seer Credits economy tracks earn/spend actions, while Stripe checkout (web) and RevenueCat (mobile) share entitlement logic via `EnhancedPaymentService`. Successful purchases update `users/{uid}` and `plan/active` with `effectiveLimits`, renewal flags, and cache snapshots. |
+| **Marketplace** | Live Firestore-backed listings with category filters, creation dialogs, and seller validation. |
+| **Audio experiences** | Procedural sound bath synthesizes ambience on the fly—no bundled binaries required. |
 
-### 🎨 **Stunning UI**
-- Glassmorphic design with visual_codex effects
-- Holographic buttons and floating crystal animations
-- Mystical purple/violet theme with smooth transitions
-- Mobile-responsive with touch-optimized controls
-- Real-time particles and shader effects
+## 🚧 Remaining work at a glance
 
-### 🔥 **Firebase Backend**
-- **Authentication**: Email/Google sign-in with user profiles
-- **Firestore**: Real-time database with security rules
-- **Cloud Functions**: 15+ AI-powered endpoints
-- **Storage**: Encrypted image and audio storage
-- **Analytics**: User behavior and feature usage tracking
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for a detailed breakdown. In short, ensure production Firebase/Stripe credentials are supplied, tighten marketplace vetting for real-money launches, and complete feature-flagged economy rewards before GA.
 
-## 🚀 Technology Stack
-
-- **Frontend**: Flutter 3.19+ with Material 3 design
-- **Backend**: Firebase (Firestore, Functions, Auth, Storage, Hosting)
-- **AI Services**: Google Gemini 1.5 Pro, Google Vision API
-- **Payments**: Stripe for subscriptions and marketplace
-- **Deployment**: Firebase Hosting with CI/CD via GitHub Actions
-
-## 📱 Project Architecture
+## 🏗 Architecture overview
 
 ```
-crystal-grimoire-fresh/
-├── lib/
-│   ├── main.dart                    # App entry point
-│   ├── theme/app_theme.dart         # Mystical theme system
-│   ├── screens/                     # UI screens
-│   │   ├── home_screen.dart         # Main dashboard
-│   │   ├── splash_screen.dart       # Animated loading
-│   │   └── [other screens]
-│   ├── widgets/                     # Reusable components
-│   │   ├── glassmorphic_container.dart
-│   │   ├── floating_crystals.dart
-│   │   └── holographic_button.dart
-│   ├── services/                    # Business logic
-│   │   ├── firebase_service.dart    # Firestore operations
-│   │   ├── auth_service.dart        # Authentication
-│   │   └── crystal_service.dart     # AI integration
-│   └── models/                      # Data models
-│       ├── crystal_model.dart
-│       └── user_profile_model.dart
-├── functions/                       # Cloud Functions
-│   ├── index.js                     # 15+ AI endpoints
-│   └── package.json                 # Node.js dependencies
-├── web/                            # Flutter web build
-├── firebase.json                   # Firebase configuration
-└── firestore.rules                # Security rules
+Flutter Web (lib/)
+├── screens/ – feature screens (auth wrapper, collection, marketplace, dream journal, subscription, settings)
+├── services/ – auth, AI, payments, economy, collection sync, shared AppState cache
+├── config/ – API/env configuration & entitlement constants
+├── widgets/ – reusable glassmorphic cards, buttons, particles
+└── theme/ – app-wide theming & gradients
+
+Firebase
+├── Auth (email/google/apple)
+├── Firestore (users/{uid}, plan/active, usage, collection, dreams, marketplace)
+├── Storage (image uploads)
+└── Cloud Functions (functions/index.js)
 ```
 
-## 🛠️ Development Setup
+## ⚙️ Local setup
 
-### Prerequisites
-```bash
-# Required tools
-flutter --version  # 3.19+
-node --version      # 18+
-firebase --version  # Latest
-gh --version        # GitHub CLI
-```
+1. Install **Flutter 3.19+**, **Node 20+**, and the **Firebase CLI**.
+2. Run `flutter pub get` and `npm install` inside `functions/`.
+3. Supply the required defines when running or building Flutter (see table below or `DEVELOPER_HANDOFF.me`). Example:
+   ```bash
+   flutter run -d chrome \
+     --dart-define=FIREBASE_API_KEY=... \
+     --dart-define=FIREBASE_PROJECT_ID=... \
+     --dart-define=GEMINI_API_KEY=... \
+     --dart-define=STRIPE_PUBLISHABLE_KEY=... \
+     --dart-define=REVENUECAT_API_KEY=...
+   ```
+4. Configure Cloud Functions secrets before invoking checkout:
+   ```bash
+   firebase functions:config:set \
+     gemini.api_key=YOUR_KEY \
+     stripe.secret_key=sk_live_... \
+     stripe.premium_price_id=price_... \
+     stripe.pro_price_id=price_... \
+     stripe.founders_price_id=price_...
+   ```
 
-### Quick Start
-```bash
-# 1. Clone repository
-git clone https://github.com/Domusgpt/crystal-grimoire-fresh.git
-cd crystal-grimoire-fresh
+### Runtime configuration (partial list)
 
-# 2. Install Flutter dependencies
-flutter pub get
+| Define | Purpose |
+| --- | --- |
+| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID` | Core Firebase bootstrap |
+| `GEMINI_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_API_KEY`, `GROQ_API_KEY` | AI provider credentials (only keys you use are required) |
+| `AI_DEFAULT_PROVIDER` | Default AI selection (`gemini`, `openai`, etc.) |
+| `REVENUECAT_API_KEY` | Mobile subscription support |
+| `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PREMIUM_PRICE_ID`, `STRIPE_PRO_PRICE_ID`, `STRIPE_FOUNDERS_PRICE_ID` | Web checkout pricing |
+| `TERMS_URL`, `PRIVACY_URL`, `SUPPORT_URL`, `SUPPORT_EMAIL` | Settings “About” links |
+| `ADMOB_*` identifiers | Optional AdMob inventory (falls back to Google test IDs) |
+| `BACKEND_URL`, `USE_LOCAL_BACKEND` | Optional non-Firebase backend routing |
 
-# 3. Install Functions dependencies  
-cd functions && npm install && cd ..
+Consult `DEVELOPER_HANDOFF.me` for the full matrix, data-contract notes, and troubleshooting tips.
 
-# 4. Configure Firebase
-firebase login
-firebase use crystal-grimoire-2025  # Your project ID
+## 🧪 Testing & validation
 
-# 5. Set environment variables
-cp .env.example .env
-# Add your API keys to .env
+- `flutter analyze` – Static analysis (requires Flutter SDK locally).
+- `flutter test` – Widget/unit tests.
+- `npm run lint` (inside `functions/`) – Cloud Functions linting.
 
-# 6. Run development server
-flutter run -d chrome
-```
+CI/CD can reuse these commands before deploying to Firebase Hosting (`flutter build web` → `firebase deploy --only hosting,functions`).
 
-## 🚀 Deployment
+## 📚 Additional documentation
 
-### Firebase Hosting
-```bash
-# Build and deploy
-flutter build web --release --base-href="/"
-firebase deploy --only hosting,functions
-```
+- [DEVELOPER_HANDOFF.me](DEVELOPER_HANDOFF.me) – Deep-dive setup, data contracts, and deployment checklist.
+- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) – Step-by-step Firebase project bootstrap.
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) – Current alpha/beta roadmap and outstanding work.
 
-### Environment Variables
-```bash
-# Required in Firebase Functions config
-GEMINI_API_KEY=your_gemini_key_here
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-```
-
-## 📊 Features Roadmap
-
-### ✅ **Completed (MVP)**
-- [x] Beautiful glassmorphic UI with animations
-- [x] Firebase authentication (Email + Google)
-- [x] AI crystal identification system
-- [x] Personal crystal collection management
-- [x] Moon phase calculations and ritual recommendations
-- [x] Dream journal with AI analysis
-- [x] Sound bath with crystal frequencies
-- [x] Comprehensive Cloud Functions backend
-
-### 🚧 **In Progress**
-- [ ] Crystal Identification screen with camera integration
-- [ ] Collection screen with advanced filtering
-- [ ] Crystal Healing screen with chakra visualization
-- [ ] Marketplace for buying/selling crystals
-- [ ] User profile and settings management
-
-### 🎯 **Planned Features**
-- [ ] Stripe payment integration for subscriptions
-- [ ] Push notifications for moon phases
-- [ ] Offline mode with local storage
-- [ ] Social features and crystal sharing
-- [ ] Advanced analytics and insights
-
-## 🔒 Security & Privacy
-
-- **Authentication**: Firebase Auth with secure user sessions
-- **Data Encryption**: All sensitive data encrypted at rest
-- **API Security**: Rate limiting and input validation
-- **Privacy**: GDPR compliant data handling
-- **Payments**: PCI DSS compliant via Stripe
-
-## 📈 Performance
-
-- **First Paint**: < 2 seconds
-- **Crystal ID Response**: < 5 seconds  
-- **Database Queries**: < 500ms average
-- **Lighthouse Score**: 90+ across all metrics
-- **Mobile Performance**: Optimized for mid-range devices
-
-## 🧪 Testing
-
-```bash
-# Unit tests
-flutter test
-
-# Integration tests
-flutter test integration_test/
-
-# Cloud Functions tests
-cd functions && npm test
-```
-
-## 📝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🔗 Links
-
-- **Live Demo**: https://crystal-grimoire-2025.web.app
-- **Documentation**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
-- **API Reference**: Coming soon
-- **Support**: Create an issue or contact support
-
----
-
-**Built with ❤️ and Crystal Energy** ✨
-
-*Combining ancient wisdom with modern technology to create a truly mystical experience.*
+For support or clarifications, open an issue or reach out via the configured support email in `EnvironmentConfig`.
