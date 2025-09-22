@@ -156,6 +156,8 @@ class CrystalService extends ChangeNotifier {
     required String dreamContent,
     required List<String> userCrystals,
     DateTime? dreamDate,
+    String? mood,
+    String? moonPhase,
   }) async {
     try {
       final callable = functions.httpsCallable('analyzeDream');
@@ -163,8 +165,10 @@ class CrystalService extends ChangeNotifier {
         'dreamContent': dreamContent,
         'userCrystals': userCrystals,
         'dreamDate': dreamDate?.toIso8601String(),
+        'mood': mood,
+        'moonPhase': moonPhase,
       });
-      
+
       return result.data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('Error analyzing dream: $e');

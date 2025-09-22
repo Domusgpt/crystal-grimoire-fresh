@@ -1,13 +1,51 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:ui';
-import 'dart:math' as math;
 
 class SoundBathScreen extends StatefulWidget {
   const SoundBathScreen({Key? key}) : super(key: key);
 
   @override
   State<SoundBathScreen> createState() => _SoundBathScreenState();
+}
+
+class _ToneComponent {
+  final double frequency;
+  final double amplitude;
+  final double? modulationFrequency;
+  final double modulationDepth;
+  final double phase;
+
+  const _ToneComponent({
+    required this.frequency,
+    required this.amplitude,
+    this.modulationFrequency,
+    this.modulationDepth = 0.0,
+    this.phase = 0.0,
+  });
+}
+
+class _SoundscapeDefinition {
+  final String frequencyLabel;
+  final String description;
+  final Color color;
+  final IconData icon;
+  final List<_ToneComponent> tones;
+  final double noiseAmplitude;
+
+  const _SoundscapeDefinition({
+    required this.frequencyLabel,
+    required this.description,
+    required this.color,
+    required this.icon,
+    required this.tones,
+    this.noiseAmplitude = 0.0,
+  });
 }
 
 class _SoundBathScreenState extends State<SoundBathScreen> 
@@ -18,48 +56,167 @@ class _SoundBathScreenState extends State<SoundBathScreen>
   late Animation<double> _waveAnimation;
   late Animation<double> _breathingAnimation;
   late Animation<double> _glowAnimation;
-  
+
   bool isPlaying = false;
   String selectedSound = 'Crystal Bowl';
   int selectedDuration = 10; // minutes
-  
-  final Map<String, Map<String, dynamic>> soundData = {
-    'Crystal Bowl': {
-      'frequency': '432 Hz',
-      'description': 'Pure crystal vibrations for deep healing',
-      'color': const Color(0xFF9333EA),
-      'icon': Icons.album,
-    },
-    'Tibetan Bowl': {
-      'frequency': '528 Hz',
-      'description': 'Ancient healing frequencies',
-      'color': const Color(0xFFD97706),
-      'icon': Icons.circle,
-    },
-    'Ocean Waves': {
-      'frequency': 'Natural',
-      'description': 'Calming rhythm of the sea',
-      'color': const Color(0xFF0EA5E9),
-      'icon': Icons.waves,
-    },
-    'Rain Forest': {
-      'frequency': 'Natural',
-      'description': 'Immersive nature sounds',
-      'color': const Color(0xFF10B981),
-      'icon': Icons.forest,
-    },
-    'Chakra Tones': {
-      'frequency': '396-963 Hz',
-      'description': 'Full chakra alignment sequence',
-      'color': const Color(0xFFEC4899),
-      'icon': Icons.blur_circular,
-    },
+
+  late AudioPlayer _audioPlayer;
+  Timer? _sessionTimer;
+
+  final Map<String, _SoundscapeDefinition> _soundscapes = {
+    'Crystal Bowl': _SoundscapeDefinition(
+      frequencyLabel: '432 Hz',
+      description: 'Pure crystal vibrations for deep healing',
+      color: const Color(0xFF9333EA),
+      icon: Icons.album,
+      tones: const [
+        _ToneComponent(frequency: 432, amplitude: 0.7),
+        _ToneComponent(
+          frequency: 864,
+          amplitude: 0.25,
+          modulationFrequency: 0.1,
+          modulationDepth: 0.3,
+        ),
+      ],
+    ),
+    'Tibetan Bowl': _SoundscapeDefinition(
+      frequencyLabel: '528 Hz',
+      description: 'Ancient harmonic healing frequencies',
+      color: const Color(0xFFD97706),
+      icon: Icons.circle,
+      tones: const [
+        _ToneComponent(frequency: 528, amplitude: 0.65),
+        _ToneComponent(
+          frequency: 396,
+          amplitude: 0.2,
+          modulationFrequency: 0.07,
+          modulationDepth: 0.35,
+          phase: math.pi / 3,
+        ),
+        _ToneComponent(
+          frequency: 792,
+          amplitude: 0.15,
+          modulationFrequency: 0.11,
+          modulationDepth: 0.25,
+          phase: math.pi / 2,
+        ),
+      ],
+    ),
+    'Ocean Waves': _SoundscapeDefinition(
+      frequencyLabel: 'Natural',
+      description: 'Calming rhythm of the sea',
+      color: const Color(0xFF0EA5E9),
+      icon: Icons.waves,
+      tones: const [
+        _ToneComponent(
+          frequency: 60,
+          amplitude: 0.25,
+          modulationFrequency: 0.05,
+          modulationDepth: 0.6,
+        ),
+        _ToneComponent(
+          frequency: 120,
+          amplitude: 0.18,
+          modulationFrequency: 0.08,
+          modulationDepth: 0.4,
+          phase: math.pi / 4,
+        ),
+      ],
+      noiseAmplitude: 0.35,
+    ),
+    'Rain Forest': _SoundscapeDefinition(
+      frequencyLabel: 'Natural',
+      description: 'Immersive nature chorus with gentle rain',
+      color: const Color(0xFF10B981),
+      icon: Icons.forest,
+      tones: const [
+        _ToneComponent(
+          frequency: 220,
+          amplitude: 0.18,
+          modulationFrequency: 0.12,
+          modulationDepth: 0.5,
+        ),
+        _ToneComponent(
+          frequency: 440,
+          amplitude: 0.15,
+          modulationFrequency: 0.18,
+          modulationDepth: 0.4,
+          phase: math.pi / 5,
+        ),
+        _ToneComponent(
+          frequency: 660,
+          amplitude: 0.12,
+          modulationFrequency: 0.23,
+          modulationDepth: 0.4,
+          phase: math.pi / 2,
+        ),
+      ],
+      noiseAmplitude: 0.25,
+    ),
+    'Chakra Tones': _SoundscapeDefinition(
+      frequencyLabel: '396-963 Hz',
+      description: 'Full chakra alignment sequence',
+      color: const Color(0xFFEC4899),
+      icon: Icons.blur_circular,
+      tones: const [
+        _ToneComponent(frequency: 396, amplitude: 0.12),
+        _ToneComponent(
+          frequency: 417,
+          amplitude: 0.12,
+          modulationFrequency: 0.05,
+          modulationDepth: 0.2,
+          phase: math.pi / 6,
+        ),
+        _ToneComponent(frequency: 432, amplitude: 0.12),
+        _ToneComponent(
+          frequency: 528,
+          amplitude: 0.12,
+          modulationFrequency: 0.09,
+          modulationDepth: 0.25,
+          phase: math.pi / 4,
+        ),
+        _ToneComponent(
+          frequency: 639,
+          amplitude: 0.12,
+          modulationFrequency: 0.11,
+          modulationDepth: 0.25,
+          phase: math.pi / 3,
+        ),
+        _ToneComponent(
+          frequency: 741,
+          amplitude: 0.1,
+          modulationFrequency: 0.13,
+          modulationDepth: 0.3,
+          phase: math.pi / 2.2,
+        ),
+        _ToneComponent(
+          frequency: 852,
+          amplitude: 0.1,
+          modulationFrequency: 0.17,
+          modulationDepth: 0.28,
+          phase: math.pi / 1.7,
+        ),
+        _ToneComponent(
+          frequency: 963,
+          amplitude: 0.1,
+          modulationFrequency: 0.19,
+          modulationDepth: 0.3,
+          phase: math.pi / 1.4,
+        ),
+      ],
+    ),
   };
+
+  final Map<String, Uint8List> _soundBuffers = {};
 
   @override
   void initState() {
     super.initState();
-    
+
+    _audioPlayer = AudioPlayer();
+    _audioPlayer.setReleaseMode(ReleaseMode.loop);
+
     _waveController = AnimationController(
       duration: const Duration(seconds: 6),
       vsync: this,
@@ -105,11 +262,181 @@ class _SoundBathScreenState extends State<SoundBathScreen>
     _waveController.dispose();
     _breathingController.dispose();
     _glowController.dispose();
+    _sessionTimer?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _startPlayback() async {
+    final definition = _soundscapes[selectedSound];
+    if (definition == null) {
+      return;
+    }
+
+    try {
+      final buffer = await _loadSoundscapeBytes(selectedSound, definition);
+      await _audioPlayer.stop();
+      await _audioPlayer.play(BytesSource(buffer));
+
+      _sessionTimer?.cancel();
+      _sessionTimer = Timer(Duration(minutes: selectedDuration), () async {
+        await _audioPlayer.stop();
+        if (mounted) {
+          setState(() {
+            isPlaying = false;
+          });
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isPlaying = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to start sound bath: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _stopPlayback() async {
+    _sessionTimer?.cancel();
+    await _audioPlayer.stop();
+  }
+
+  Future<void> _togglePlayback() async {
+    if (isPlaying) {
+      await _stopPlayback();
+      if (mounted) {
+        setState(() {
+          isPlaying = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          isPlaying = true;
+        });
+      }
+      await _startPlayback();
+    }
+  }
+
+  Future<void> _restartPlaybackIfNeeded() async {
+    if (isPlaying) {
+      await _startPlayback();
+    }
+  }
+
+  Future<Uint8List> _loadSoundscapeBytes(
+    String key,
+    _SoundscapeDefinition definition,
+  ) async {
+    final cached = _soundBuffers[key];
+    if (cached != null) {
+      return cached;
+    }
+
+    final buffer = await Future<Uint8List>(() {
+      return _generateSoundscape(definition, seed: key.hashCode);
+    });
+    _soundBuffers[key] = buffer;
+    return buffer;
+  }
+
+  Uint8List _generateSoundscape(
+    _SoundscapeDefinition definition, {
+    required int seed,
+    int sampleRate = 44100,
+    double durationSeconds = 8.0,
+  }) {
+    final sampleCount = (sampleRate * durationSeconds).toInt();
+    final byteData = ByteData(44 + sampleCount * 2);
+    final random = math.Random(seed);
+    final double twoPi = 2 * math.pi;
+
+    for (var i = 0; i < sampleCount; i++) {
+      final t = i / sampleRate;
+      double sample = 0.0;
+
+      for (final tone in definition.tones) {
+        final modulation = (tone.modulationFrequency != null &&
+                tone.modulationDepth != 0)
+            ? 1 +
+                tone.modulationDepth *
+                    math.sin(twoPi * tone.modulationFrequency! * t + tone.phase)
+            : 1.0;
+        sample += math.sin(twoPi * tone.frequency * t + tone.phase) *
+            tone.amplitude *
+            modulation;
+      }
+
+      if (definition.noiseAmplitude > 0) {
+        sample += (random.nextDouble() * 2 - 1) * definition.noiseAmplitude;
+      }
+
+      final window = 0.5 - 0.5 * math.cos(twoPi * i / (sampleCount - 1));
+      sample = (sample * window).clamp(-1.0, 1.0);
+      final value = (sample * 32767).round().clamp(-32768, 32767);
+      byteData.setInt16(44 + i * 2, value, Endian.little);
+    }
+
+    _writeString(byteData, 0, 'RIFF');
+    byteData.setUint32(4, 36 + sampleCount * 2, Endian.little);
+    _writeString(byteData, 8, 'WAVE');
+    _writeString(byteData, 12, 'fmt ');
+    byteData.setUint32(16, 16, Endian.little); // Subchunk1Size
+    byteData.setUint16(20, 1, Endian.little); // PCM format
+    byteData.setUint16(22, 1, Endian.little); // Mono
+    byteData.setUint32(24, sampleRate, Endian.little);
+    byteData.setUint32(28, sampleRate * 2, Endian.little); // Byte rate
+    byteData.setUint16(32, 2, Endian.little); // Block align
+    byteData.setUint16(34, 16, Endian.little); // Bits per sample
+    _writeString(byteData, 36, 'data');
+    byteData.setUint32(40, sampleCount * 2, Endian.little);
+
+    return byteData.buffer.asUint8List();
+  }
+
+  void _writeString(ByteData data, int offset, String value) {
+    for (var i = 0; i < value.length; i++) {
+      data.setUint8(offset + i, value.codeUnitAt(i));
+    }
+  }
+
+  void _changeSound(int direction) {
+    final options = _soundscapes.keys.toList();
+    if (options.isEmpty) return;
+
+    final currentIndex = options.indexOf(selectedSound);
+    if (currentIndex == -1) {
+      setState(() {
+        selectedSound = options.first;
+      });
+      _restartPlaybackIfNeeded();
+      return;
+    }
+
+    var newIndex = currentIndex + direction;
+    if (newIndex < 0) {
+      newIndex = options.length - 1;
+    } else if (newIndex >= options.length) {
+      newIndex = 0;
+    }
+
+    setState(() {
+      selectedSound = options[newIndex];
+    });
+    _restartPlaybackIfNeeded();
   }
 
   @override
   Widget build(BuildContext context) {
+    final selectedDefinition = _soundscapes[selectedSound];
+    final accentColor = selectedDefinition?.color ?? const Color(0xFF9333EA);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -151,7 +478,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                   size: MediaQuery.of(context).size,
                   painter: WavePainter(
                     animationValue: _waveAnimation.value,
-                    color: soundData[selectedSound]!['color'] as Color,
+                    color: accentColor,
                   ),
                 );
               },
@@ -196,6 +523,10 @@ class _SoundBathScreenState extends State<SoundBathScreen>
   }
 
   Widget _buildCentralVisualization() {
+    final definition = _soundscapes[selectedSound];
+    final color = definition?.color ?? const Color(0xFF9333EA);
+    final icon = definition?.icon ?? Icons.album;
+
     return AnimatedBuilder(
       animation: Listenable.merge([_breathingAnimation, _glowAnimation]),
       builder: (context, child) {
@@ -206,8 +537,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: (soundData[selectedSound]!['color'] as Color)
-                    .withOpacity(0.3 * _glowAnimation.value),
+                color: color.withOpacity(0.3 * _glowAnimation.value),
                 blurRadius: 50,
                 spreadRadius: 20,
               ),
@@ -227,10 +557,8 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                     gradient: RadialGradient(
                       colors: [
                         Colors.transparent,
-                        (soundData[selectedSound]!['color'] as Color)
-                            .withOpacity(0.1),
-                        (soundData[selectedSound]!['color'] as Color)
-                            .withOpacity(0.3),
+                        color.withOpacity(0.1),
+                        color.withOpacity(0.3),
                       ],
                     ),
                   ),
@@ -248,10 +576,8 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                     gradient: RadialGradient(
                       colors: [
                         Colors.transparent,
-                        (soundData[selectedSound]!['color'] as Color)
-                            .withOpacity(0.2),
-                        (soundData[selectedSound]!['color'] as Color)
-                            .withOpacity(0.4),
+                        color.withOpacity(0.2),
+                        color.withOpacity(0.4),
                       ],
                     ),
                   ),
@@ -264,18 +590,17 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                 height: 100,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: soundData[selectedSound]!['color'] as Color,
+                  color: color,
                   boxShadow: [
                     BoxShadow(
-                      color: (soundData[selectedSound]!['color'] as Color)
-                          .withOpacity(0.8),
+                      color: color.withOpacity(0.8),
                       blurRadius: 30,
                       spreadRadius: 10,
                     ),
                   ],
                 ),
                 child: Icon(
-                  soundData[selectedSound]!['icon'] as IconData,
+                  icon,
                   color: Colors.white,
                   size: 50,
                 ),
@@ -304,17 +629,18 @@ class _SoundBathScreenState extends State<SoundBathScreen>
           height: 120,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount: soundData.length,
+            itemCount: _soundscapes.length,
             itemBuilder: (context, index) {
-              final sound = soundData.keys.elementAt(index);
-              final data = soundData[sound]!;
+              final sound = _soundscapes.keys.elementAt(index);
+              final data = _soundscapes[sound]!;
               final isSelected = sound == selectedSound;
-              
+
               return GestureDetector(
                 onTap: () {
                   setState(() {
                     selectedSound = sound;
                   });
+                  _restartPlaybackIfNeeded();
                 },
                 child: Container(
                   width: 140,
@@ -331,8 +657,8 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                             end: Alignment.bottomRight,
                             colors: isSelected
                                 ? [
-                                    (data['color'] as Color).withOpacity(0.3),
-                                    (data['color'] as Color).withOpacity(0.1),
+                                    data.color.withOpacity(0.3),
+                                    data.color.withOpacity(0.1),
                                   ]
                                 : [
                                     Colors.white.withOpacity(0.1),
@@ -341,7 +667,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                           ),
                           border: Border.all(
                             color: isSelected
-                                ? (data['color'] as Color).withOpacity(0.5)
+                                ? data.color.withOpacity(0.5)
                                 : Colors.white.withOpacity(0.2),
                             width: 1.5,
                           ),
@@ -351,9 +677,9 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Icon(
-                              data['icon'] as IconData,
+                              data.icon,
                               color: isSelected
-                                  ? data['color'] as Color
+                                  ? data.color
                                   : Colors.white70,
                               size: 32,
                             ),
@@ -367,7 +693,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                               textAlign: TextAlign.center,
                             ),
                             Text(
-                              data['frequency'] as String,
+                              data.frequencyLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: 12,
                                 color: Colors.white54,
@@ -385,7 +711,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
         ),
         const SizedBox(height: 12),
         Text(
-          soundData[selectedSound]!['description'] as String,
+          _soundscapes[selectedSound]?.description ?? '',
           style: GoogleFonts.poppins(
             fontSize: 14,
             color: Colors.white70,
@@ -397,6 +723,8 @@ class _SoundBathScreenState extends State<SoundBathScreen>
   }
 
   Widget _buildDurationSelector() {
+    final color = _soundscapes[selectedSound]?.color ?? const Color(0xFF9333EA);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: BackdropFilter(
@@ -439,6 +767,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                       setState(() {
                         selectedDuration = duration;
                       });
+                      _restartPlaybackIfNeeded();
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -447,13 +776,12 @@ class _SoundBathScreenState extends State<SoundBathScreen>
                       ),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? (soundData[selectedSound]!['color'] as Color)
-                                .withOpacity(0.3)
+                            ? color.withOpacity(0.3)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isSelected
-                              ? soundData[selectedSound]!['color'] as Color
+                              ? color
                               : Colors.white30,
                         ),
                       ),
@@ -517,6 +845,8 @@ class _SoundBathScreenState extends State<SoundBathScreen>
   }
 
   Widget _buildPlayControls() {
+    final color = _soundscapes[selectedSound]?.color ?? const Color(0xFF9333EA);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -533,9 +863,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
           ),
           child: IconButton(
             icon: const Icon(Icons.skip_previous, color: Colors.white70),
-            onPressed: () {
-              // Previous sound logic
-            },
+            onPressed: () => _changeSound(-1),
           ),
         ),
         
@@ -543,11 +871,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
         
         // Play/Pause button
         GestureDetector(
-          onTap: () {
-            setState(() {
-              isPlaying = !isPlaying;
-            });
-          },
+          onTap: _togglePlayback,
           child: Container(
             width: 80,
             height: 80,
@@ -555,14 +879,13 @@ class _SoundBathScreenState extends State<SoundBathScreen>
               shape: BoxShape.circle,
               gradient: LinearGradient(
                 colors: [
-                  soundData[selectedSound]!['color'] as Color,
-                  (soundData[selectedSound]!['color'] as Color).withOpacity(0.7),
+                  color,
+                  color.withOpacity(0.7),
                 ],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: (soundData[selectedSound]!['color'] as Color)
-                      .withOpacity(0.4),
+                  color.withOpacity(0.4),
                   blurRadius: 20,
                   spreadRadius: 5,
                 ),
@@ -591,9 +914,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
           ),
           child: IconButton(
             icon: const Icon(Icons.skip_next, color: Colors.white70),
-            onPressed: () {
-              // Next sound logic
-            },
+            onPressed: () => _changeSound(1),
           ),
         ),
       ],
