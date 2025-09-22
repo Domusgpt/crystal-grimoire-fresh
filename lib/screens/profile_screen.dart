@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/app_state.dart';
+import 'package:intl/intl.dart';
 import '../services/auth_service.dart';
-import '../services/economy_service.dart';
 import '../widgets/common/mystical_button.dart';
 import '../widgets/animations/mystical_animations.dart';
 
@@ -26,7 +24,17 @@ class _AccountScreenState extends State<AccountScreen>
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _userStats;
   bool _isLoading = true;
-  
+  Map<String, dynamic>? _planData;
+  Map<String, dynamic>? _usageData;
+  int _collectionCount = 0;
+  int _collectionLimit = 50;
+  int _identifyLimit = 3;
+  int _guidanceLimit = 1;
+  int _identificationsToday = 0;
+  int _guidanceToday = 0;
+  DateTime? _planExpiresAt;
+  bool _planWillRenew = false;
+
   // Computed properties for UI
   String get _userName => _userData?['name'] ?? _currentUser?.displayName ?? 'Crystal Seeker';
   String get _userEmail => _currentUser?.email ?? 'No email';
@@ -34,7 +42,9 @@ class _AccountScreenState extends State<AccountScreen>
   int get _crystalsIdentified => _userStats?['crystalsIdentified'] ?? 0;
   int get _journalEntries => _userStats?['journalEntries'] ?? 0;
   int get _daysStreak => _userStats?['daysStreak'] ?? 0;
-  String get _currentTier => _userData?['tier'] ?? 'Free';
+  String get _currentTier =>
+      (_planData?['plan'] ?? _userData?['subscriptionTier'] ?? 'free').toString();
+  String get _tierChipLabel => _currentTier.replaceAll('_', ' ').toUpperCase();
 
   @override
   void initState() {
@@ -59,22 +69,27 @@ class _AccountScreenState extends State<AccountScreen>
             .collection('users')
             .doc(_currentUser!.uid)
             .get();
-            
+
         if (userDoc.exists) {
           _userData = userDoc.data();
+          _planWillRenew = _userData?['subscriptionWillRenew'] == true;
+          _planExpiresAt = _coerceToDateTime(_userData?['subscriptionExpiresAt']);
         }
-        
+
         // Load user statistics
         final statsDoc = await FirebaseFirestore.instance
             .collection('user_stats')
             .doc(_currentUser!.uid)
             .get();
-            
+
         if (statsDoc.exists) {
           _userStats = statsDoc.data();
+          _collectionCount = _intFrom(_userStats?['collectionCount'], fallback: _collectionCount);
         }
+
+        await _loadPlanAndUsage(_currentUser!.uid);
       }
-      
+
       setState(() {
         _isLoading = false;
       });
@@ -83,6 +98,56 @@ class _AccountScreenState extends State<AccountScreen>
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadPlanAndUsage(String uid) async {
+    try {
+      final planSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('plan')
+          .doc('active')
+          .get();
+      final usageKey = DateFormat('yyyyMMdd').format(DateTime.now());
+      final usageSnapshot = await FirebaseFirestore.instance
+          .collection('usage')
+          .doc('${uid}_$usageKey')
+          .get();
+      final collectionSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('collection')
+          .get();
+
+      if (!mounted) return;
+
+      final planData = planSnapshot.data();
+      final usageData = usageSnapshot.data();
+      final planLimitsRaw = planData != null ? planData['effectiveLimits'] : null;
+      final userLimits = _userData?['effectiveLimits'];
+      final limits = planLimitsRaw is Map<String, dynamic>
+          ? Map<String, dynamic>.from(planLimitsRaw)
+          : userLimits is Map<String, dynamic>
+              ? Map<String, dynamic>.from(userLimits)
+              : <String, dynamic>{};
+
+      setState(() {
+        _planData = planData;
+        _usageData = usageData;
+        _collectionCount = collectionSnapshot.size;
+        _identifyLimit = _normalizeLimit(limits['identifyPerDay'], fallback: 3);
+        _guidanceLimit = _normalizeLimit(limits['guidancePerDay'], fallback: 1);
+        _collectionLimit = _normalizeLimit(limits['collectionMax'], fallback: 50);
+        _identificationsToday =
+            _intFrom(usageData?['identifyCount'] ?? _userStats?['crystalsIdentifiedToday']);
+        _guidanceToday =
+            _intFrom(usageData?['guidanceCount'] ?? _userStats?['guidanceSessions']);
+        _planWillRenew = _userData?['subscriptionWillRenew'] == true;
+        _planExpiresAt = _coerceToDateTime(_userData?['subscriptionExpiresAt']);
+      });
+    } catch (e) {
+      print('Error loading plan/usage data: $e');
     }
   }
 
@@ -341,6 +406,63 @@ class _AccountScreenState extends State<AccountScreen>
     );
   }
 
+  int _intFrom(dynamic value, {int fallback = 0}) {
+    if (value == null) return fallback;
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  DateTime? _coerceToDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+    }
+    if (value is double) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+    }
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  int _normalizeLimit(dynamic value, {required int fallback}) {
+    if (value == null) return fallback;
+    if (value is String) {
+      final normalized = value.toLowerCase();
+      if (normalized == 'unlimited') return -1;
+      final parsed = int.tryParse(value);
+      if (parsed == null) return fallback;
+      return parsed <= 0 ? -1 : parsed;
+    }
+    if (value is num) {
+      final parsed = value.toInt();
+      return parsed <= 0 ? -1 : parsed;
+    }
+    return fallback;
+  }
+
+  String _planRenewalText() {
+    if (_currentTier.toLowerCase() == 'founders' && _planExpiresAt == null) {
+      return 'Lifetime access unlocked';
+    }
+
+    if (_planExpiresAt == null) {
+      return _planWillRenew
+          ? 'Renews automatically each period'
+          : 'Access active until the current cycle ends';
+    }
+
+    final formatted = DateFormat.yMMMMd().add_jm().format(_planExpiresAt!.toLocal());
+    return _planWillRenew
+        ? 'Renews on $formatted'
+        : 'Access until $formatted';
+  }
+
   Widget _buildSubscriptionSection() {
     return FadeScaleIn(
       delay: const Duration(milliseconds: 400),
@@ -373,11 +495,11 @@ class _AccountScreenState extends State<AccountScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _currentTier == 'Free' ? Colors.grey : Colors.amber,
+                    color: _currentTier.toLowerCase() == 'free' ? Colors.grey : Colors.amber,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    _currentTier.toUpperCase(),
+                    _tierChipLabel,
                     style: GoogleFonts.cinzel(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -397,9 +519,22 @@ class _AccountScreenState extends State<AccountScreen>
               ),
             ),
             const SizedBox(height: 8),
-            _buildUsageBar('Crystal IDs', 3, 5, Colors.blue),
+            _buildUsageBar('Crystal IDs', _identificationsToday, _identifyLimit, Colors.blue),
             const SizedBox(height: 8),
-            _buildUsageBar('Collection', 2, 5, Colors.green),
+            _buildUsageBar('Guidance', _guidanceToday, _guidanceLimit, Colors.purpleAccent),
+            const SizedBox(height: 8),
+            _buildUsageBar('Collection', _collectionCount, _collectionLimit, Colors.green),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _planRenewalText(),
+                style: GoogleFonts.crimsonText(
+                  fontSize: 13,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -417,7 +552,10 @@ class _AccountScreenState extends State<AccountScreen>
   }
 
   Widget _buildUsageBar(String label, int used, int total, Color color) {
-    final percentage = used / total;
+    final isUnlimited = total <= 0;
+    final safeTotal = total <= 0 ? 1 : total;
+    final percentage = (used / safeTotal).clamp(0.0, 1.0);
+    final displayTotal = isUnlimited ? '∞' : total.toString();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -432,7 +570,7 @@ class _AccountScreenState extends State<AccountScreen>
               ),
             ),
             Text(
-              '$used / $total',
+              '$used / $displayTotal',
               style: GoogleFonts.crimsonText(
                 fontSize: 14,
                 color: Colors.white70,
@@ -442,7 +580,7 @@ class _AccountScreenState extends State<AccountScreen>
         ),
         const SizedBox(height: 4),
         LinearProgressIndicator(
-          value: percentage,
+          value: isUnlimited ? null : percentage,
           backgroundColor: Colors.white24,
           valueColor: AlwaysStoppedAnimation<Color>(color),
         ),
@@ -614,12 +752,7 @@ class _AccountScreenState extends State<AccountScreen>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Payment processing will be available soon'),
-                  backgroundColor: Colors.purple,
-                ),
-              );
+              Navigator.pushNamed(context, '/subscription');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber,
@@ -680,14 +813,9 @@ class _AccountScreenState extends State<AccountScreen>
             ),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Advanced authentication coming soon'),
-                  backgroundColor: Colors.purple,
-                ),
-              );
+              await AuthService.signOutAndRedirect(context);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
