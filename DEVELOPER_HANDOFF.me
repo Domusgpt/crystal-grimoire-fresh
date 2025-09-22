@@ -13,6 +13,7 @@
 - Account deletion is routed through the privileged `deleteUserAccount` callable, which recursively clears every `users/{uid}` subcollection (collection, dreams, guidance, identifications, economy, plan, badges, etc.), removes legacy usage/log entries, and then deletes the Firebase Auth user—client code simply invokes `AuthService.deleteAccount()`.
 - API providers pull credentials from `EnvironmentConfig` (no hard-coded Gemini/OpenAI/Groq keys) and the paywall uses Stripe on web. `EnhancedPaymentService` launches a Cloud Function-powered checkout, polls the status, and reconciles the user’s tier without mock responses.
 - Ads service reads AdMob IDs/test devices from `EnvironmentConfig`; if unset it automatically falls back to Google test units so there are no production TODOs.
+- Removed unused Firebase REST/extension stubs (`firebase_service.dart`, `unified_data_service.dart`, etc.) so only production-ready services remain in `lib/services/`.
 
 ## Local environment setup
 1. **Flutter SDK** – Install Flutter 3.19 or newer. On macOS/Linux the repo team uses [`asdf`](https://asdf-vm.com/) with the [`asdf-flutter`](https://github.com/oae/asdf-flutter) plugin: `asdf plugin add flutter` then `asdf install flutter 3.22.2`. Add the binary to your `PATH` (e.g., `asdf global flutter 3.22.2`).
