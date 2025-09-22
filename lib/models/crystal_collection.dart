@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'crystal.dart';
 import 'crystal_v2.dart' as v2;
 
@@ -9,6 +10,7 @@ class CollectionEntry {
   final Crystal crystal;
   final DateTime dateAdded;
   final String source; // Where/how acquired: "purchased", "gifted", "found", "inherited"
+  final String libraryRef; // Reference to crystals_library/{slug}
   final String? location; // Where acquired/found
   final double? price; // If purchased
   final String size; // "small", "medium", "large", "pocket", "specimen"
@@ -40,6 +42,7 @@ class CollectionEntry {
     this.isActive = true,
     this.isFavorite = false,
     Map<String, dynamic>? customProperties,
+    required this.libraryRef,
   }) : customProperties = customProperties ?? {};
 
   /// Create a new collection entry
@@ -54,7 +57,9 @@ class CollectionEntry {
     List<String>? primaryUses,
     String? notes,
     List<String>? images,
+    String? libraryRef,
   }) {
+    final resolvedLibraryRef = (libraryRef ?? crystal.id ?? '').trim();
     return CollectionEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       userId: userId,
@@ -68,6 +73,9 @@ class CollectionEntry {
       primaryUses: primaryUses ?? [],
       images: images ?? [],
       notes: notes,
+      libraryRef: resolvedLibraryRef.isNotEmpty
+          ? resolvedLibraryRef
+          : _fallbackLibraryRef(crystal.name),
     );
   }
 
@@ -91,16 +99,32 @@ class CollectionEntry {
       'isActive': isActive,
       'isFavorite': isFavorite,
       'customProperties': customProperties,
+      'libraryRef': libraryRef,
     };
   }
 
   /// Create from JSON
   factory CollectionEntry.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    final crystalData = json['crystal'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(json['crystal'])
+        : <String, dynamic>{};
+
+    if (!crystalData.containsKey('id') && json['id'] != null) {
+      crystalData['id'] = json['id'];
+    }
+
     return CollectionEntry(
       id: json['id'],
       userId: json['userId'],
-      crystal: Crystal.fromJson(json['crystal']),
-      dateAdded: DateTime.parse(json['dateAdded']),
+      crystal: Crystal.fromJson(crystalData),
+      dateAdded: parseDate(json['dateAdded']),
       source: json['source'],
       location: json['location'],
       price: json['price']?.toDouble(),
@@ -114,6 +138,7 @@ class CollectionEntry {
       isActive: json['isActive'] ?? true,
       isFavorite: json['isFavorite'] ?? false,
       customProperties: json['customProperties'] ?? {},
+      libraryRef: (json['libraryRef'] ?? '').toString(),
     );
   }
 
@@ -126,6 +151,7 @@ class CollectionEntry {
     bool? isActive,
     bool? isFavorite,
     List<String>? primaryUses,
+    String? libraryRef,
   }) {
     return CollectionEntry(
       id: id,
@@ -145,6 +171,7 @@ class CollectionEntry {
       isActive: isActive ?? this.isActive,
       isFavorite: isFavorite ?? this.isFavorite,
       customProperties: customProperties,
+      libraryRef: libraryRef ?? this.libraryRef,
     );
   }
 
@@ -154,6 +181,19 @@ class CollectionEntry {
   }
 }
 
+String _fallbackLibraryRef(String name) {
+  final sanitized = name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'-{2,}'), '-')
+      .replaceAll(RegExp(r'^-|-$'), '');
+
+  if (sanitized.isEmpty) {
+    return 'crystal-${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  return sanitized;
+}
 /// Crystal usage log entry (simplified journal)
 class UsageLog {
   final String id;
@@ -199,10 +239,17 @@ class UsageLog {
   }
 
   factory UsageLog.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
     return UsageLog(
       id: json['id'],
       collectionEntryId: json['collectionEntryId'],
-      dateTime: DateTime.parse(json['dateTime']),
+      dateTime: parseDate(json['dateTime']),
       purpose: json['purpose'],
       intention: json['intention'],
       result: json['result'],
