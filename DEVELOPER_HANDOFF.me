@@ -62,7 +62,6 @@ Call `EnvironmentConfig.printConfigurationStatus()` during bootstrap to log any 
 - `users/{uid}/collection/{entryId}`: `{ libraryRef: string, notes: string, tags: string[], addedAt: timestamp, createdAt?: timestamp, updatedAt?: timestamp }` – the client dereferences `libraryRef` against `crystal_library/{slug}` to hydrate the full crystal details locally.
 - `users/{uid}/collectionLogs/{logId}`: usage log entries saved by the collection service.
 - `users/{uid}/identifications/{id}`: `{ imagePath: string|null, candidates: [{ name, confidence, rationale, variety? }], selected: { name, confidence, rationale, variety? }, createdAt, updatedAt }`.
-- `users/{uid}/journal/{entryId}`: must include `createdAt` timestamps for monthly counts.
 - `users/{uid}/dreams/{entryId}`: `{ content, analysis, crystalSuggestions: [{ name, reason, usage }], crystalsUsed: string[], dreamDate, createdAt, updatedAt, mood?, moonPhase? }`.
 - `checkoutSessions/{sessionId}`: ephemeral Stripe checkout metadata `{ uid, tier, priceId, mode, status, createdAt, completedAt? }` written by the Cloud Functions to help the web client poll completion.
 
@@ -98,3 +97,8 @@ Call `EnvironmentConfig.printConfigurationStatus()` during bootstrap to log any 
 - Always route premium upsells to `/subscription` so paywall logic stays centralized.
 - Use `CollectionServiceV2` for collection mutations to keep Firestore and the local cache aligned.
 - Prefer `AppState` helpers when adjusting settings/usage so SharedPreferences mirrors stay consistent.
+
+## Account deletion & data cleanup
+- Account deletions must flow through the callable `deleteUserAccount`; direct client deletes are blocked by security rules. `AuthService.deleteAccount()` already invokes the callable with `us-central1` Cloud Functions.
+- The function recursively removes all `users/{uid}` subcollections (`collection`, `collectionLogs`, `identifications`, `guidance`, `dreams`, `badges`, `plan`, `economy`) before deleting the root document, the Firebase Auth user, and any related marketplace, usage log, or support-ticket documents.
+- When running manual tests, ensure App Check tokens are present (the callable enforces App Check) and confirm the client signs out afterwards; local caches are cleared via `StorageService.clearUserData()`.

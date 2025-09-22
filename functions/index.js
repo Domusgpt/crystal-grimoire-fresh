@@ -6,7 +6,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp, FieldPath } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { config } = require('firebase-functions/v1');
 
@@ -795,8 +795,33 @@ exports.getUserProfile = onCall(
 );
 
 // Delete user account and all associated data - callable function
+async function deleteDocumentRecursive(docRef) {
+  const subcollections = await docRef.listCollections();
+  for (const subcollection of subcollections) {
+    await deleteCollectionRecursive(subcollection);
+  }
+
+  await docRef.delete();
+}
+
+async function deleteCollectionRecursive(collectionRef) {
+  const documents = await collectionRef.listDocuments();
+  for (const docRef of documents) {
+    await deleteDocumentRecursive(docRef);
+  }
+}
+
+async function deleteQueryRecursive(query) {
+  const snapshot = await query.get();
+  if (snapshot.empty) {
+    return;
+  }
+
+  await Promise.all(snapshot.docs.map((doc) => deleteDocumentRecursive(doc.ref)));
+}
+
 exports.deleteUserAccount = onCall(
-  { cors: true },
+  { cors: true, region: 'us-central1', enforceAppCheck: true },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');
@@ -806,28 +831,65 @@ exports.deleteUserAccount = onCall(
       const userId = request.auth.uid;
       
       console.log(`🗑️ Starting account deletion for user ${userId}`);
-      
-      // Delete user's subcollections
-      const collections = ['crystals', 'journal', 'identifications', 'guidance'];
-      
+
+      const userRef = db.collection('users').doc(userId);
+
+      const collections = [
+        'collection',
+        'collectionLogs',
+        'identifications',
+        'guidance',
+        'dreams',
+        'badges',
+        'plan',
+        'economy',
+      ];
+
       for (const collectionName of collections) {
-        const collectionRef = db.collection('users').doc(userId).collection(collectionName);
-        const snapshot = await collectionRef.get();
-        
-        for (const doc of snapshot.docs) {
-          await doc.ref.delete();
-        }
+        await deleteCollectionRecursive(userRef.collection(collectionName));
       }
-      
-      // Delete main user document
-      await db.collection('users').doc(userId).delete();
-      
-      // Delete from Firebase Auth
+
+      await userRef.delete();
+
+      await Promise.all([
+        deleteQueryRecursive(
+          db
+            .collection('usage_logs')
+            .where('userId', '==', userId),
+        ),
+        deleteQueryRecursive(
+          db
+            .collection('marketplace')
+            .where('sellerId', '==', userId),
+        ),
+        deleteQueryRecursive(
+          db
+            .collection('support_tickets')
+            .where('userId', '==', userId),
+        ),
+        deleteQueryRecursive(
+          db
+            .collection('identifications')
+            .where('userId', '==', userId),
+        ),
+        deleteQueryRecursive(
+          db
+            .collection('guidance_logs')
+            .where('userId', '==', userId),
+        ),
+        deleteQueryRecursive(
+          db
+            .collection('usage')
+            .where(FieldPath.documentId(), '>=', `${userId}_`)
+            .where(FieldPath.documentId(), '<', `${userId}_~`),
+        ),
+      ]);
+
       await auth.deleteUser(userId);
-      
+
       console.log(`✅ Account successfully deleted for user ${userId}`);
       return { success: true };
-      
+
     } catch (error) {
       console.error('❌ Error deleting account:', error);
       throw new HttpsError('internal', 'Failed to delete account');

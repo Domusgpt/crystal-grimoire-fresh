@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'storage_service.dart';
 
 class AuthService extends ChangeNotifier {
@@ -11,6 +12,7 @@ class AuthService extends ChangeNotifier {
   static final GoogleSignIn _googleSignIn = GoogleSignIn.instance; // Modern 7.x singleton pattern
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static bool _isGoogleSignInInitialized = false;
+  static final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   
   // Stream of auth state changes
   static Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -250,17 +252,13 @@ class AuthService extends ChangeNotifier {
     if (user == null) return;
     
     try {
-      // Delete user data from Firestore
-      await _firestore.collection('users').doc(user.uid).delete();
-      
-      // Delete user collections
-      await _deleteUserCollections(user.uid);
-      
-      // Delete the user account
-      await user.delete();
-      
-      // Clear local storage
+      final callable = _functions.httpsCallable('deleteUserAccount');
+      await callable.call();
+
+      await _auth.signOut();
       await StorageService.clearUserData();
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception('Failed to delete account: ${e.message ?? e.code}');
     } catch (e) {
       throw Exception('Failed to delete account: $e');
     }
@@ -383,30 +381,6 @@ class AuthService extends ChangeNotifier {
       }
     } catch (e) {
       print('Failed to cache plan snapshot: $e');
-    }
-  }
-  
-  static Future<void> _deleteUserCollections(String uid) async {
-    // Delete user's crystal collection
-    final collectionRef = _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('crystals');
-    
-    final crystals = await collectionRef.get();
-    for (final doc in crystals.docs) {
-      await doc.reference.delete();
-    }
-    
-    // Delete user's journal entries
-    final journalRef = _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('journal');
-    
-    final entries = await journalRef.get();
-    for (final doc in entries.docs) {
-      await doc.reference.delete();
     }
   }
   
