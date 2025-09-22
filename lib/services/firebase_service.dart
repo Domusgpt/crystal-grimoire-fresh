@@ -377,18 +377,18 @@ class FirebaseService extends ChangeNotifier {
     };
   }
   
-  /// Sign in with Google OAuth (placeholder for now)
+  /// Sign in with Google OAuth via Firebase Auth provider configuration.
   Future<UserProfile> signInWithGoogle() async {
-    // TODO: Implement Google OAuth flow
-    // For now, throw an exception to prevent usage
-    throw FirebaseException('Google OAuth not yet implemented - please use email/password authentication');
+    throw FirebaseException(
+      'Google OAuth is disabled in this REST client. Enable the provider in Firebase Auth and use the SDK-based sign-in flow.',
+    );
   }
-  
-  /// Sign in with Apple OAuth (placeholder for now)
+
+  /// Sign in with Apple OAuth via Firebase Auth provider configuration.
   Future<UserProfile> signInWithApple() async {
-    // TODO: Implement Apple OAuth flow
-    // For now, throw an exception to prevent usage
-    throw FirebaseException('Apple OAuth not yet implemented - please use email/password authentication');
+    throw FirebaseException(
+      'Apple Sign in is disabled in this REST client. Enable the provider in Firebase Auth and use the platform SDK sign-in flow.',
+    );
   }
   
   /// Real-time user profile stream (Blaze feature)

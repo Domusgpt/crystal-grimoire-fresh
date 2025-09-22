@@ -6,7 +6,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { config } = require('firebase-functions/v1');
 
@@ -14,6 +14,176 @@ const { config } = require('firebase-functions/v1');
 initializeApp();
 const db = getFirestore();
 const auth = getAuth();
+
+// Stripe configuration (optional)
+const stripeConfig = config().stripe || {};
+let stripeClient = null;
+try {
+  if (stripeConfig.secret_key) {
+    stripeClient = require('stripe')(stripeConfig.secret_key);
+  }
+} catch (error) {
+  console.error('⚠️ Unable to initialise Stripe client:', error.message);
+}
+
+const stripePriceMapping = new Map();
+if (stripeConfig.premium_price_id) {
+  stripePriceMapping.set(stripeConfig.premium_price_id, { tier: 'premium', mode: 'subscription' });
+}
+if (stripeConfig.pro_price_id) {
+  stripePriceMapping.set(stripeConfig.pro_price_id, { tier: 'pro', mode: 'subscription' });
+}
+if (stripeConfig.founders_price_id) {
+  stripePriceMapping.set(stripeConfig.founders_price_id, { tier: 'founders', mode: 'payment' });
+}
+
+const PLAN_DETAILS = {
+  free: {
+    plan: 'free',
+    effectiveLimits: {
+      identifyPerDay: 3,
+      guidancePerDay: 1,
+      journalMax: 50,
+      collectionMax: 50,
+    },
+    flags: ['free'],
+    lifetime: false,
+  },
+  premium: {
+    plan: 'premium',
+    effectiveLimits: {
+      identifyPerDay: 15,
+      guidancePerDay: 5,
+      journalMax: 200,
+      collectionMax: 250,
+    },
+    flags: ['stripe', 'priority_support'],
+    lifetime: false,
+  },
+  pro: {
+    plan: 'pro',
+    effectiveLimits: {
+      identifyPerDay: 40,
+      guidancePerDay: 15,
+      journalMax: 500,
+      collectionMax: 1000,
+    },
+    flags: ['stripe', 'priority_support', 'advanced_ai'],
+    lifetime: false,
+  },
+  founders: {
+    plan: 'founders',
+    effectiveLimits: {
+      identifyPerDay: 999,
+      guidancePerDay: 200,
+      journalMax: 2000,
+      collectionMax: 2000,
+    },
+    flags: ['stripe', 'lifetime', 'founder'],
+    lifetime: true,
+  },
+};
+
+const PLAN_ALIASES = {
+  explorer: 'free',
+  emissary: 'premium',
+  ascended: 'pro',
+  esper: 'founders',
+};
+
+function resolvePlanDetails(tier) {
+  const normalized = (tier || 'free').toString().trim().toLowerCase();
+  const key = PLAN_DETAILS[normalized] ? normalized : PLAN_ALIASES[normalized] || 'free';
+  const details = PLAN_DETAILS[key] || PLAN_DETAILS.free;
+  return {
+    plan: details.plan,
+    effectiveLimits: { ...details.effectiveLimits },
+    flags: [...details.flags],
+    lifetime: details.lifetime,
+    tier: key,
+  };
+}
+
+function ensureStripeConfigured() {
+  if (!stripeClient) {
+    throw new HttpsError('failed-precondition', 'Stripe is not configured. Set stripe.secret_key and price IDs.');
+  }
+}
+
+async function deleteCollectionDeep(collectionRef) {
+  const snapshot = await collectionRef.get();
+  if (snapshot.empty) {
+    return;
+  }
+
+  for (const doc of snapshot.docs) {
+    const nestedCollections = await doc.ref.listCollections();
+    for (const nested of nestedCollections) {
+      await deleteCollectionDeep(nested);
+    }
+  }
+
+  let batch = db.batch();
+  let writes = 0;
+
+  for (const doc of snapshot.docs) {
+    batch.delete(doc.ref);
+    writes += 1;
+
+    if (writes >= 400) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+
+  if (writes > 0) {
+    await batch.commit();
+  }
+}
+
+async function deleteQueryBatch(query) {
+  const snapshot = await query.get();
+  if (snapshot.empty) {
+    return;
+  }
+
+  let batch = db.batch();
+  let writes = 0;
+
+  for (const doc of snapshot.docs) {
+    batch.delete(doc.ref);
+    writes += 1;
+
+    if (writes >= 400) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+
+  if (writes > 0) {
+    await batch.commit();
+  }
+}
+
+function resolvePriceMetadata(priceId, requestedTier) {
+  if (priceId && stripePriceMapping.has(priceId)) {
+    return stripePriceMapping.get(priceId);
+  }
+
+  if (requestedTier) {
+    const normalized = String(requestedTier).toLowerCase();
+    if (['premium', 'pro', 'founders'].includes(normalized)) {
+      return {
+        tier: normalized,
+        mode: normalized === 'founders' ? 'payment' : 'subscription',
+      };
+    }
+  }
+
+  return null;
+}
 
 // Health check endpoint - no auth required for system monitoring
 exports.healthCheck = onCall({ cors: true, invoker: 'public' }, async (request) => {
@@ -28,6 +198,231 @@ exports.healthCheck = onCall({ cors: true, invoker: 'public' }, async (request) 
     },
   };
 });
+
+exports.createStripeCheckoutSession = onCall(
+  { cors: true, region: 'us-central1', enforceAppCheck: true },
+  async (request) => {
+    ensureStripeConfigured();
+
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Authentication required to start checkout.');
+    }
+
+    const priceId = request.data?.priceId;
+    const requestedTier = request.data?.tier;
+    const successUrlInput = request.data?.successUrl;
+    const cancelUrlInput = request.data?.cancelUrl;
+
+    if (!priceId || typeof priceId !== 'string') {
+      throw new HttpsError('invalid-argument', 'priceId is required.');
+    }
+
+    if (!successUrlInput || typeof successUrlInput !== 'string') {
+      throw new HttpsError('invalid-argument', 'successUrl is required.');
+    }
+
+    if (!cancelUrlInput || typeof cancelUrlInput !== 'string') {
+      throw new HttpsError('invalid-argument', 'cancelUrl is required.');
+    }
+
+    const priceMeta = resolvePriceMetadata(priceId, requestedTier);
+    if (!priceMeta) {
+      throw new HttpsError('invalid-argument', 'Unsupported price identifier.');
+    }
+
+    const successUrl = successUrlInput.includes('{CHECKOUT_SESSION_ID}')
+      ? successUrlInput
+      : `${successUrlInput}${successUrlInput.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+
+    const cancelUrl = cancelUrlInput.includes('cancelled=')
+      ? cancelUrlInput
+      : `${cancelUrlInput}${cancelUrlInput.includes('?') ? '&' : '?'}cancelled=true`;
+
+    try {
+      const session = await stripeClient.checkout.sessions.create({
+        mode: priceMeta.mode,
+        client_reference_id: request.auth.uid,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          uid: request.auth.uid,
+          tier: priceMeta.tier,
+          priceId,
+        },
+        subscription_data: priceMeta.mode === 'subscription'
+          ? {
+              metadata: {
+                uid: request.auth.uid,
+                tier: priceMeta.tier,
+              },
+            }
+          : undefined,
+      });
+
+      await db.collection('checkoutSessions').doc(session.id).set({
+        uid: request.auth.uid,
+        tier: priceMeta.tier,
+        priceId,
+        mode: priceMeta.mode,
+        status: session.status,
+        createdAt: FieldValue.serverTimestamp(),
+        successUrl,
+        cancelUrl,
+      }, { merge: true });
+
+      return {
+        sessionId: session.id,
+        checkoutUrl: session.url,
+        expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+      };
+    } catch (error) {
+      console.error('❌ Stripe checkout error:', error);
+      throw new HttpsError('internal', error.message || 'Failed to start checkout session.');
+    }
+  }
+);
+
+exports.finalizeStripeCheckoutSession = onCall(
+  { cors: true, region: 'us-central1', enforceAppCheck: true },
+  async (request) => {
+    ensureStripeConfigured();
+
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Authentication required to verify checkout.');
+    }
+
+    const sessionId = request.data?.sessionId;
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new HttpsError('invalid-argument', 'sessionId is required.');
+    }
+
+    const checkoutRef = db.collection('checkoutSessions').doc(sessionId);
+    const checkoutSnap = await checkoutRef.get();
+
+    if (checkoutSnap.exists) {
+      const checkoutData = checkoutSnap.data();
+      if (checkoutData.uid && checkoutData.uid !== request.auth.uid) {
+        throw new HttpsError('permission-denied', 'Checkout session does not belong to this user.');
+      }
+    }
+
+    try {
+      const session = await stripeClient.checkout.sessions.retrieve(sessionId, {
+        expand: ['line_items', 'subscription'],
+      });
+
+      if (!session) {
+        throw new HttpsError('not-found', 'Checkout session not found.');
+      }
+
+      if (session.client_reference_id && session.client_reference_id !== request.auth.uid) {
+        throw new HttpsError('permission-denied', 'Checkout session does not belong to this user.');
+      }
+
+      if (session.payment_status !== 'paid') {
+        await checkoutRef.set({
+          status: session.status,
+          paymentStatus: session.payment_status,
+          lastCheckedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        throw new HttpsError('failed-precondition', 'Payment is not complete yet.');
+      }
+
+      const lineItems = session.line_items && session.line_items.data ? session.line_items.data : [];
+      const firstPrice = lineItems.length > 0 && lineItems[0].price ? lineItems[0].price.id : null;
+      const metadata = resolvePriceMetadata(firstPrice, checkoutSnap.data()?.tier);
+
+      if (!metadata) {
+        throw new HttpsError('failed-precondition', 'Unable to determine plan for this checkout.');
+      }
+
+      let expiresAt = null;
+      let willRenew = false;
+      if (session.mode === 'subscription' && session.subscription) {
+        const subscription = session.subscription;
+        if (subscription.current_period_end) {
+          expiresAt = new Date(subscription.current_period_end * 1000).toISOString();
+        }
+        willRenew = subscription.cancel_at_period_end === false;
+      }
+
+      const planDetails = resolvePlanDetails(metadata.tier);
+
+      let expiresAtTimestamp = null;
+      if (expiresAt) {
+        const parsed = new Date(expiresAt);
+        if (!Number.isNaN(parsed.getTime())) {
+          expiresAtTimestamp = Timestamp.fromDate(parsed);
+        }
+      }
+
+      await db.collection('users').doc(request.auth.uid).set({
+        profile: {
+          subscriptionTier: planDetails.plan,
+          subscriptionStatus: 'active',
+          subscriptionProvider: 'stripe',
+          subscriptionWillRenew: willRenew,
+          subscriptionExpiresAt: expiresAtTimestamp,
+          subscriptionBillingTier: metadata.tier,
+          subscriptionUpdatedAt: FieldValue.serverTimestamp(),
+          effectiveLimits: planDetails.effectiveLimits,
+        }
+      }, { merge: true });
+
+      const planDocument = {
+        plan: planDetails.plan,
+        billingTier: metadata.tier,
+        provider: 'stripe',
+        priceId: firstPrice,
+        effectiveLimits: planDetails.effectiveLimits,
+        flags: planDetails.flags,
+        willRenew,
+        lifetime: planDetails.lifetime,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      if (expiresAtTimestamp) {
+        planDocument.expiresAt = expiresAtTimestamp;
+      } else if (planDetails.lifetime) {
+        planDocument.expiresAt = null;
+      }
+
+      await db.collection('users').doc(request.auth.uid)
+        .collection('plan')
+        .doc('active')
+        .set(planDocument, { merge: true });
+
+      await checkoutRef.set({
+        status: 'completed',
+        paymentStatus: session.payment_status,
+        completedAt: FieldValue.serverTimestamp(),
+        tier: metadata.tier,
+        priceId: firstPrice,
+      }, { merge: true });
+
+      return {
+        tier: metadata.tier,
+        isActive: true,
+        willRenew,
+        expiresAt,
+        sessionStatus: session.status,
+        plan: planDetails.plan,
+      };
+    } catch (error) {
+      console.error('❌ Stripe finalize error:', error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError('internal', error.message || 'Failed to verify checkout session.');
+    }
+  }
+);
 
 // Crystal identification function - requires authentication
 exports.identifyCrystal = onCall(
@@ -105,16 +500,50 @@ exports.identifyCrystal = onCall(
       const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
       const crystalData = JSON.parse(cleanJson);
 
-      // Save identification to user's collection
-      const identificationRecord = {
-        ...crystalData,
-        userId: userId,
-        timestamp: new Date().toISOString(),
-        imageData: imageData.substring(0, 100) + '...', // Store truncated version for reference
+      const confidenceRaw = crystalData?.identification?.confidence;
+      let confidence = 0;
+      if (typeof confidenceRaw === 'number') {
+        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
+      } else if (typeof confidenceRaw === 'string') {
+        const parsed = parseFloat(confidenceRaw);
+        if (!Number.isNaN(parsed)) {
+          confidence = parsed > 1 ? parsed / 100 : parsed;
+        }
+      }
+
+      const candidateEntry = {
+        name: crystalData?.identification?.name || 'Unknown',
+        confidence,
+        rationale: typeof crystalData?.description === 'string' ? crystalData.description : '',
+        variety: crystalData?.identification?.variety || null,
       };
 
-      await db.collection('identifications').add(identificationRecord);
-      console.log('💾 Crystal identification saved to user collection');
+      const imagePath = (typeof request.data?.imagePath === 'string' && request.data.imagePath.trim().length)
+        ? request.data.imagePath.trim()
+        : null;
+
+      const identificationDocument = {
+        imagePath,
+        candidates: [candidateEntry],
+        selected: {
+          name: candidateEntry.name,
+          confidence: candidateEntry.confidence,
+          rationale: candidateEntry.rationale,
+          variety: candidateEntry.variety,
+        },
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      const identificationRef = await db
+        .collection('users')
+        .doc(userId)
+        .collection('identifications')
+        .add(identificationDocument);
+
+      console.log(`💾 Crystal identification saved for user ${userId} as ${identificationRef.id}`);
+
+      await migrateLegacyIdentifications(userId);
 
       console.log('✅ Crystal identified:', crystalData.identification?.name || 'Unknown');
       
@@ -126,6 +555,85 @@ exports.identifyCrystal = onCall(
     }
   }
 );
+
+async function migrateLegacyIdentifications(uid) {
+  try {
+    const legacySnapshot = await db
+      .collection('identifications')
+      .where('userId', '==', uid)
+      .limit(10)
+      .get();
+
+    if (legacySnapshot.empty) {
+      return;
+    }
+
+    const batch = db.batch();
+    let migratedCount = 0;
+
+    legacySnapshot.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      if (data.migrated === true) {
+        return;
+      }
+
+      const legacyConfidence = typeof data?.identification?.confidence === 'number'
+        ? data.identification.confidence
+        : parseFloat(data?.identification?.confidence || 0);
+      const normalizedConfidence = Number.isFinite(legacyConfidence)
+        ? (legacyConfidence > 1 ? legacyConfidence / 100 : legacyConfidence)
+        : 0;
+
+      const candidate = {
+        name: data?.identification?.name || data?.name || 'Unknown',
+        confidence: normalizedConfidence,
+        rationale: typeof data?.description === 'string' ? data.description : '',
+        variety: data?.identification?.variety || null,
+      };
+
+      let createdAt = null;
+      if (data.createdAt instanceof Timestamp) {
+        createdAt = data.createdAt;
+      } else if (data.timestamp instanceof Timestamp) {
+        createdAt = data.timestamp;
+      } else if (typeof data.timestamp === 'string' || data.createdAt) {
+        const raw = data.createdAt || data.timestamp;
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) {
+          createdAt = Timestamp.fromDate(parsed);
+        }
+      }
+
+      const targetRef = db
+        .collection('users')
+        .doc(uid)
+        .collection('identifications')
+        .doc(doc.id);
+
+      batch.set(targetRef, {
+        imagePath: data.imagePath || null,
+        candidates: [candidate],
+        selected: candidate,
+        createdAt: createdAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      batch.update(doc.ref, {
+        migrated: true,
+        migratedAt: FieldValue.serverTimestamp(),
+      });
+
+      migratedCount += 1;
+    });
+
+    if (migratedCount > 0) {
+      await batch.commit();
+      console.log(`🔄 Migrated ${migratedCount} legacy identification(s) for ${uid}`);
+    }
+  } catch (migrationError) {
+    console.error('⚠️ Legacy identification migration failed:', migrationError);
+  }
+}
 
 // Crystal guidance function - text-only Gemini queries, requires authentication
 exports.getCrystalGuidance = onCall(
@@ -232,27 +740,35 @@ exports.createUserDocument = onDocumentCreated('users/{userId}', async (event) =
     // Initialize user's subcollections and default data
     const userRef = db.collection('users').doc(userId);
     
-    // Set default user profile data
-    const defaultProfile = {
+    const profile = {
       uid: userId,
-      email: userData.email || '',
       displayName: userData.displayName || 'Crystal Seeker',
-      photoURL: userData.photoURL || null,
-      createdAt: FieldValue.serverTimestamp(),
-      lastLoginAt: FieldValue.serverTimestamp(),
+      photoUrl: userData.photoURL || null,
       subscriptionTier: 'free',
       subscriptionStatus: 'active',
-      monthlyIdentifications: 0,
-      totalIdentifications: 0,
-      metaphysicalQueries: 0,
-      settings: {
-        notifications: true,
-        newsletter: true,
-        darkMode: true,
-      },
+      createdAt: FieldValue.serverTimestamp(),
+      lastLoginAt: FieldValue.serverTimestamp(),
     };
-    
-    await userRef.set(defaultProfile, { merge: true });
+
+    const settings = {
+      notifications: true,
+      sound: true,
+      vibration: true,
+      darkMode: true,
+      meditationReminder: 'Daily',
+      crystalReminder: 'Weekly',
+      shareUsageData: true,
+      contentWarnings: true,
+      language: 'en',
+    };
+
+    await userRef.set({
+      email: userData.email || '',
+      profile,
+      settings,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
     
     // Initialize empty collections
     await userRef.collection('crystals').doc('_init').set({ created: FieldValue.serverTimestamp() });
@@ -345,30 +861,29 @@ exports.deleteUserAccount = onCall(
     
     try {
       const userId = request.auth.uid;
-      
+      const userRef = db.collection('users').doc(userId);
+
       console.log(`🗑️ Starting account deletion for user ${userId}`);
-      
-      // Delete user's subcollections
-      const collections = ['crystals', 'journal', 'identifications', 'guidance'];
-      
-      for (const collectionName of collections) {
-        const collectionRef = db.collection('users').doc(userId).collection(collectionName);
-        const snapshot = await collectionRef.get();
-        
-        for (const doc of snapshot.docs) {
-          await doc.ref.delete();
-        }
+
+      const subcollections = await userRef.listCollections();
+      for (const subcollection of subcollections) {
+        await deleteCollectionDeep(subcollection);
       }
-      
-      // Delete main user document
-      await db.collection('users').doc(userId).delete();
-      
-      // Delete from Firebase Auth
+
+      await userRef.delete();
+
+      await Promise.all([
+        deleteQueryBatch(db.collection('usage').where('userId', '==', userId)),
+        deleteQueryBatch(db.collection('usage_logs').where('userId', '==', userId)),
+        deleteQueryBatch(db.collection('checkoutSessions').where('uid', '==', userId)),
+        deleteQueryBatch(db.collection('identifications').where('userId', '==', userId)),
+      ]);
+
       await auth.deleteUser(userId);
-      
+
       console.log(`✅ Account successfully deleted for user ${userId}`);
       return { success: true };
-      
+
     } catch (error) {
       console.error('❌ Error deleting account:', error);
       throw new HttpsError('internal', 'Failed to delete account');
@@ -420,9 +935,142 @@ exports.trackUsage = onCall(
   }
 );
 
+// Dream analysis and journaling helper
+exports.analyzeDream = onCall(
+  { cors: true, memory: '512MiB', timeoutSeconds: 40 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+
+    const { dreamContent, userCrystals, dreamDate, mood, moonPhase } = request.data || {};
+
+    if (!dreamContent || typeof dreamContent !== 'string' || dreamContent.trim().length < 10) {
+      throw new HttpsError('invalid-argument', 'Dream content must be at least 10 characters long.');
+    }
+
+    try {
+      console.log(`🌌 Analyzing dream for user ${request.auth.uid}`);
+
+      const { GoogleGenerativeAI } = require('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(config().gemini.api_key);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+      const crystalList = Array.isArray(userCrystals) ? userCrystals.join(', ') : 'None specified';
+      const phase = moonPhase || 'Current lunar cycle';
+
+      const analysisPrompt = `You are a compassionate dream interpreter who integrates crystal healing.` +
+        `\nReturn a JSON object with the following structure (no markdown):` +
+        `\n{` +
+        `\n  "analysis": {` +
+        `\n    "summary": string,` +
+        `\n    "symbols": string,` +
+        `\n    "emotions": string,` +
+        `\n    "spiritualMessage": string,` +
+        `\n    "ritual": string` +
+        `\n  },` +
+        `\n  "crystalSuggestions": [{"name": string, "reason": string, "usage": string}],` +
+        `\n  "affirmation": string` +
+        `\n}` +
+        `\nKeep guidance mystical yet grounded, avoid medical/legal advice.` +
+        `\nDream: "${dreamContent}"` +
+        `\nKnown crystals: ${crystalList}` +
+        `\nMoon phase: ${phase}` +
+        (mood ? `\nReported mood: ${mood}` : '');
+
+      const aiResponse = await model.generateContent([analysisPrompt]);
+      const rawText = aiResponse.response.text();
+      const cleaned = rawText.replace(/```json\n?|```/g, '').trim();
+
+      let structured;
+      try {
+        structured = JSON.parse(cleaned);
+      } catch (parseError) {
+        console.warn('⚠️ Dream analysis JSON parse failed, falling back to text output.');
+        structured = {
+          analysis: { summary: rawText },
+          crystalSuggestions: Array.isArray(userCrystals) ? userCrystals.map((name) => ({
+            name,
+            reason: 'Personal crystal on record',
+            usage: 'Hold during reflection',
+          })) : [],
+          affirmation: 'Breathe deeply and trust your intuition.',
+        };
+      }
+
+      const analysisSections = structured.analysis || {};
+      const analysisLines = [];
+      if (analysisSections.summary) {
+        analysisLines.push(`Summary:\n${analysisSections.summary}`);
+      }
+      if (analysisSections.symbols) {
+        analysisLines.push(`Symbols & Themes:\n${analysisSections.symbols}`);
+      }
+      if (analysisSections.emotions) {
+        analysisLines.push(`Emotional Currents:\n${analysisSections.emotions}`);
+      }
+      if (analysisSections.spiritualMessage) {
+        analysisLines.push(`Spiritual Message:\n${analysisSections.spiritualMessage}`);
+      }
+      if (analysisSections.ritual) {
+        analysisLines.push(`Integration Ritual:\n${analysisSections.ritual}`);
+      }
+      if (structured.affirmation) {
+        analysisLines.push(`Affirmation:\n${structured.affirmation}`);
+      }
+
+      const analysisText = analysisLines.join('\n\n').trim() || rawText;
+      const suggestions = Array.isArray(structured.crystalSuggestions)
+        ? structured.crystalSuggestions.slice(0, 5).map((suggestion) => ({
+            name: suggestion.name || 'Crystal Ally',
+            reason: suggestion.reason || 'Resonates with dream symbolism',
+            usage: suggestion.usage || 'Hold during meditation',
+          }))
+        : [];
+
+      let dreamTimestamp = FieldValue.serverTimestamp();
+      if (dreamDate) {
+        const parsedDream = new Date(dreamDate);
+        if (!Number.isNaN(parsedDream.getTime())) {
+          dreamTimestamp = Timestamp.fromDate(parsedDream);
+        }
+      }
+
+      const entry = {
+        content: dreamContent,
+        analysis: analysisText,
+        crystalSuggestions: suggestions,
+        crystalsUsed: Array.isArray(userCrystals) ? userCrystals : [],
+        dreamDate: dreamTimestamp,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        mood: mood || null,
+        moonPhase: moonPhase || null,
+      };
+
+      const docRef = await db
+        .collection('users')
+        .doc(request.auth.uid)
+        .collection('dreams')
+        .add(entry);
+
+      console.log(`✅ Dream analysis saved with id ${docRef.id}`);
+      return {
+        analysis: analysisText,
+        crystalSuggestions: suggestions,
+        affirmation: structured.affirmation || null,
+        entryId: docRef.id,
+      };
+    } catch (error) {
+      console.error('❌ Dream analysis error:', error);
+      throw new HttpsError('internal', `Dream analysis failed: ${error.message}`);
+    }
+  }
+);
+
 // Get daily crystal recommendation - public function (no auth required for daily inspiration)
-exports.getDailyCrystal = onCall({ 
-  cors: true, 
+exports.getDailyCrystal = onCall({
+  cors: true,
   invoker: 'public',
   timeoutSeconds: 60,
   memory: '256MiB'
