@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum ConfidenceLevel {
   uncertain,
@@ -99,6 +100,14 @@ class Crystal {
   });
 
   factory Crystal.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic value) {
+      if (value == null) return null;
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value);
+      return null;
+    }
+
     return Crystal(
       id: json['id'] ?? '',
       name: json['name'] ?? 'Unknown Crystal',
@@ -114,9 +123,7 @@ class Crystal {
       hardness: json['hardness'] ?? '',
       formation: json['formation'] ?? '',
       careInstructions: json['careInstructions'] ?? '',
-      identificationDate: json['identificationDate'] != null 
-          ? DateTime.parse(json['identificationDate']) 
-          : null,
+      identificationDate: parseDate(json['identificationDate']),
       imageUrls: List<String>.from(json['imageUrls'] ?? []),
       confidence: json['confidence'] != null 
           ? ConfidenceLevel.values.byName(json['confidence']) 
@@ -215,6 +222,13 @@ class CrystalIdentification {
   });
 
   factory CrystalIdentification.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
     return CrystalIdentification(
       sessionId: json['sessionId'] ?? '',
       fullResponse: json['fullResponse'] ?? '',
@@ -224,9 +238,7 @@ class CrystalIdentification {
       suggestedAngles: List<String>.from(json['suggestedAngles'] ?? []),
       observedFeatures: List<String>.from(json['observedFeatures'] ?? []),
       mysticalMessage: json['mysticalMessage'] ?? json['spiritualMessage'] ?? '',
-      timestamp: json['timestamp'] != null 
-          ? DateTime.parse(json['timestamp']) 
-          : DateTime.now(),
+      timestamp: parseDate(json['timestamp'] ?? json['createdAt']),
     );
   }
 

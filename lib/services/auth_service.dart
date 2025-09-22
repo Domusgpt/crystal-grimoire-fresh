@@ -227,6 +227,22 @@ class AuthService extends ChangeNotifier {
       await StorageService.clearUserData();
     }
   }
+
+  static Future<void> signOutAndRedirect(BuildContext context) async {
+    try {
+      await signOut();
+      if (!context.mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/auth-check', (route) => false);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to sign out: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
   
   // Delete account
   static Future<void> deleteAccount() async {
@@ -275,27 +291,33 @@ class AuthService extends ChangeNotifier {
   // Private helper methods
   static Future<void> _createUserDocument(User user) async {
     final userDoc = _firestore.collection('users').doc(user.uid);
-    
-    final userData = {
+
+    final now = FieldValue.serverTimestamp();
+    final profile = {
       'uid': user.uid,
-      'email': user.email,
       'displayName': user.displayName ?? 'Crystal Seeker',
       'photoURL': user.photoURL,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastLoginAt': FieldValue.serverTimestamp(),
       'subscriptionTier': 'free',
       'subscriptionStatus': 'active',
       'monthlyIdentifications': 0,
       'totalIdentifications': 0,
       'metaphysicalQueries': 0,
-      'settings': {
-        'notifications': true,
-        'newsletter': true,
-        'darkMode': true,
-      },
+      'lastLoginAt': now,
     };
-    
-    await userDoc.set(userData, SetOptions(merge: true));
+
+    final settings = {
+      'notifications': true,
+      'newsletter': true,
+      'darkMode': true,
+    };
+
+    await userDoc.set({
+      'email': user.email ?? '',
+      'profile': profile,
+      'settings': settings,
+      'createdAt': now,
+      'updatedAt': now,
+    }, SetOptions(merge: true));
   }
   
   static Future<void> _syncUserData(User user) async {
@@ -303,19 +325,46 @@ class AuthService extends ChangeNotifier {
     
     if (userDoc.exists) {
       final data = userDoc.data()!;
-      
+
       // Update last login
       await userDoc.reference.update({
-        'lastLoginAt': FieldValue.serverTimestamp(),
+        'profile.lastLoginAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
-      
-      // Sync subscription tier to local storage
-      if (data['subscriptionTier'] != null) {
-        await StorageService.saveSubscriptionTier(data['subscriptionTier']);
+
+      // Sync subscription tier to local storage (supports legacy top-level + nested profile)
+      final subscriptionTier = data['subscriptionTier'] ??
+          (data['profile'] is Map<String, dynamic>
+              ? data['profile']['subscriptionTier']
+              : null);
+      if (subscriptionTier != null) {
+        await StorageService.saveSubscriptionTier(subscriptionTier.toString());
       }
-      
-      // Sync other settings
-      // TODO: Implement more data syncing as needed
+
+      // Cache latest settings locally for offline bootstrap
+      final settings = data['settings'];
+      if (settings is Map<String, dynamic>) {
+        await StorageService.saveUserSettings(settings);
+      } else {
+        await StorageService.clearUserSettings();
+      }
+
+      // Cache plan snapshot if available
+      try {
+        final planDoc = await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('plan')
+            .doc('active')
+            .get();
+        if (planDoc.exists && planDoc.data() != null) {
+          await StorageService.savePlanSnapshot(planDoc.data()!);
+        } else {
+          await StorageService.clearPlanSnapshot();
+        }
+      } catch (e) {
+        print('Failed to cache plan snapshot: $e');
+      }
     } else {
       // Create user document if it doesn't exist
       await _createUserDocument(user);

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:typed_data';
 import '../theme/app_theme.dart';
 import '../services/crystal_service.dart';
@@ -176,15 +178,77 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
     );
   }
 
-  void _addToCollection() {
-    // TODO: Implement add to collection functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Crystal added to your collection! 🔮'),
-        backgroundColor: AppTheme.amethystPurple,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  Future<void> _addToCollection() async {
+    final result = _identificationResult;
+    if (result == null) {
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in to save crystals to your collection.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final identification =
+          (result['identification'] as Map<String, dynamic>?) ?? {};
+      final metaphysical =
+          (result['metaphysical_properties'] as Map<String, dynamic>?) ?? {};
+
+      final data = <String, dynamic>{
+        'name': identification['name'] ?? 'Unknown Crystal',
+        'confidence': identification['confidence'],
+        'variety': identification['variety'],
+        'description': result['description'],
+        'imageUrl': result['imageUrl'],
+        'metaphysicalProperties': metaphysical,
+        'healingProperties':
+            List<String>.from(metaphysical['healing_properties'] ?? const []),
+        'primaryChakras':
+            List<String>.from(metaphysical['primary_chakras'] ?? const []),
+        'zodiacSigns':
+            List<String>.from(metaphysical['zodiac_signs'] ?? const []),
+        'elements':
+            List<String>.from(metaphysical['elements'] ?? const []),
+        'source': 'identification',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('collection')
+          .add(data);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${data['name']} added to your collection.',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: AppTheme.amethystPurple,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save crystal: $e'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
