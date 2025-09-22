@@ -11,8 +11,8 @@ import 'cache_service.dart';
 import 'usage_tracker.dart';
 
 class OpenAIService {
-  static const String _baseUrl = ApiConfig.openaiBaseUrl;
-  static const String _apiKey = ApiConfig.openaiApiKey;
+  static String get _baseUrl => ApiConfig.openaiBaseUrl;
+  static String get _apiKey => ApiConfig.openaiApiKey;
 
   // The core spiritual advisor prompt
   static const String _spiritualAdvisorPrompt = '''

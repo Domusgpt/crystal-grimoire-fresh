@@ -78,7 +78,6 @@ flutter:
     - assets/images/crystals/
     - assets/animations/
     - assets/icons/
-    - assets/sounds/
     - assets/data/
   
   # fonts:

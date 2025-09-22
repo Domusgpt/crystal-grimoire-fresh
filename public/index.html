@@ -68,7 +68,7 @@
                 showMessage('✅ Account created successfully!', 'success');
             } catch (error) {
                 if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
+                    showMessage('⚠️ Firebase Auth is not configured. Provide Firebase web credentials to enable sign-in.', 'warning');
                 } else {
                     showMessage(`❌ ${error.message}`, 'error');
                 }
@@ -89,7 +89,7 @@
                 showMessage('✅ Signed in successfully!', 'success');
             } catch (error) {
                 if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
+                    showMessage('⚠️ Firebase Auth is not configured. Provide Firebase web credentials to enable sign-in.', 'warning');
                 } else {
                     showMessage(`❌ ${error.message}`, 'error');
                 }
@@ -103,14 +103,6 @@
             } catch (error) {
                 console.error('Logout error:', error);
             }
-        }
-
-        window.skipAuth = function() {
-            // Simulate logged in state for demo
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('app-section').style.display = 'block';
-            document.getElementById('user-email').textContent = 'Demo User (No Auth)';
-            document.getElementById('auth-status').textContent = 'Demo Mode - Auth not required';
         }
 
         // Crystal guidance function
@@ -143,11 +135,10 @@
                             <h3>🔐 Authentication Required</h3>
                             <p>This feature requires you to be signed in. Please:</p>
                             <ol>
-                                <li>Enable Firebase Auth in console</li>
+                                <li>Enable Firebase Auth in the Firebase console</li>
                                 <li>Create an account or sign in</li>
                                 <li>Try your question again</li>
                             </ol>
-                            <p><strong>Or use "Skip Auth" for demo mode!</strong></p>
                         </div>
                     `);
                 } else {
@@ -707,13 +698,6 @@
 
                 <div id="auth-message"></div>
 
-                <div class="skip-auth-section">
-                    <h4>⚠️ Firebase Auth Not Configured Yet?</h4>
-                    <p>Try the app without authentication first:</p>
-                    <button onclick="skipAuth()" class="mystical-button" style="margin-top: 15px;">
-                        🚀 Skip Auth & Try App
-                    </button>
-                </div>
             </div>
         </div>
 
@@ -731,7 +715,7 @@
 
                 <!-- Feature Grid -->
                 <div class="feature-grid">
-                    <div class="feature-card" onclick="alert('Crystal Identification coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">📸</span>
                         <h3 class="feature-title">Crystal Identification</h3>
                         <p class="feature-description">Upload photos of your crystals and let our AI identify them with detailed metaphysical properties.</p>
@@ -743,25 +727,25 @@
                         <p class="feature-description">Ask questions and receive personalized crystal recommendations based on your intentions and needs.</p>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Collection feature coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">💎</span>
                         <h3 class="feature-title">Your Collection</h3>
                         <p class="feature-description">Keep track of your crystal collection with photos, notes, and personalized insights.</p>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Moon Rituals coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">🌙</span>
                         <h3 class="feature-title">Moon Rituals</h3>
                         <p class="feature-description">Discover lunar-powered rituals and ceremonies aligned with current moon phases.</p>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Crystal Healing coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">✨</span>
                         <h3 class="feature-title">Crystal Healing</h3>
                         <p class="feature-description">AI-generated healing layouts and chakra alignment guides using your crystals.</p>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Dream Journal coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">💭</span>
                         <h3 class="feature-title">Dream Journal</h3>
                         <p class="feature-description">Record and analyze your dreams with crystal correlations and spiritual insights.</p>
