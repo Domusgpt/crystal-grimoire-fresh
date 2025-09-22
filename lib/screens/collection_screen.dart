@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glassmorphic_container.dart';
-import '../services/economy_service.dart';
+import '../services/collection_service_v2.dart';
+import '../models/crystal_collection.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -13,67 +16,32 @@ class CollectionScreen extends StatefulWidget {
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  List<Map<String, dynamic>> _userCrystals = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+  bool _requestedInitialSync = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserCollection();
-  }
-
-  Future<void> _loadUserCollection() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final collectionSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('collection')
-            .orderBy('addedAt', descending: true)
-            .get();
-
-        final crystals = <Map<String, dynamic>>[];
-        for (final doc in collectionSnapshot.docs) {
-          final crystalData = doc.data();
-          // Get crystal details from library
-          if (crystalData['libraryRef'] != null) {
-            final libraryDoc = await FirebaseFirestore.instance
-                .doc(crystalData['libraryRef'])
-                .get();
-            if (libraryDoc.exists) {
-              crystals.add({
-                'id': doc.id,
-                'personalNotes': crystalData['notes'],
-                'tags': crystalData['tags'],
-                'addedAt': crystalData['addedAt'],
-                ...libraryDoc.data()!,
-              });
-            }
-          }
-        }
-
-        setState(() {
-          _userCrystals = crystals;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Please sign in to view your collection';
-          _isLoading = false;
-        });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final service = context.read<CollectionServiceV2>();
+      if (!service.isLoaded) {
+        await service.initialize();
       }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error loading collection: $e';
-        _isLoading = false;
-      });
-    }
+      if (!_requestedInitialSync) {
+        _requestedInitialSync = true;
+        unawaited(service.syncWithBackend());
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final collectionService = context.watch<CollectionServiceV2>();
+    final entries = collectionService.collection;
+    final hasEntries = entries.isNotEmpty;
+    final isLoading = (!collectionService.isLoaded && !hasEntries) ||
+        (collectionService.isSyncing && !hasEntries);
+    final error = collectionService.lastError;
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -118,7 +86,13 @@ class _CollectionScreenState extends State<CollectionScreen> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
-                  child: _buildCollectionContent(),
+                  child: _buildCollectionContent(
+                    context,
+                    collectionService,
+                    entries,
+                    isLoading,
+                    error,
+                  ),
                 ),
               ),
             ],
@@ -128,8 +102,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
     );
   }
 
-  Widget _buildCollectionContent() {
-    if (_isLoading) {
+  Widget _buildCollectionContent(
+    BuildContext context,
+    CollectionServiceV2 service,
+    List<CollectionEntry> entries,
+    bool isLoading,
+    String? error,
+  ) {
+    if (isLoading) {
       return const GlassmorphicContainer(
         child: Center(
           child: Column(
@@ -147,7 +127,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       );
     }
 
-    if (_errorMessage != null) {
+    if (error != null && entries.isEmpty) {
       return GlassmorphicContainer(
         child: Center(
           child: Column(
@@ -160,18 +140,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                _errorMessage!,
+                error,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                    _errorMessage = null;
-                  });
-                  _loadUserCollection();
+                  unawaited(service.syncWithBackend());
+                  setState(() {});
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.crystalGlow,
@@ -184,7 +161,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       );
     }
 
-    if (_userCrystals.isEmpty) {
+    if (entries.isEmpty) {
       return GlassmorphicContainer(
         child: Center(
           child: Column(
@@ -232,24 +209,38 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
 
     return GlassmorphicContainer(
-      child: GridView.builder(
-        padding: const EdgeInsets.all(20),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.8,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-        ),
-        itemCount: _userCrystals.length,
-        itemBuilder: (context, index) {
-          final crystal = _userCrystals[index];
-          return _buildCrystalCard(crystal);
+      child: RefreshIndicator(
+        color: AppTheme.crystalGlow,
+        backgroundColor: Colors.black87,
+        onRefresh: () async {
+          await service.syncWithBackend();
         },
+        child: GridView.builder(
+          padding: const EdgeInsets.all(20),
+          physics: const AlwaysScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.8,
+            crossAxisSpacing: 15,
+            mainAxisSpacing: 15,
+          ),
+          itemCount: entries.length,
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            return _buildCrystalCard(entry);
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildCrystalCard(Map<String, dynamic> crystal) {
+  Widget _buildCrystalCard(CollectionEntry entry) {
+    final crystal = entry.crystal;
+    final intents = crystal.metaphysicalProperties.isNotEmpty
+        ? crystal.metaphysicalProperties
+        : entry.primaryUses;
+    final formattedDate = DateFormat.yMMMd().format(entry.dateAdded.toLocal());
+
     return GlassmorphicContainer(
       borderRadius: 15,
       child: Padding(
@@ -270,16 +261,29 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   ],
                 ),
               ),
-              child: const Icon(
-                Icons.diamond,
-                size: 40,
-                color: AppTheme.crystalGlow,
-              ),
+              child: crystal.imageUrls.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        crystal.imageUrls.first,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, _, __) => const Icon(
+                          Icons.diamond,
+                          size: 40,
+                          color: AppTheme.crystalGlow,
+                        ),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.diamond,
+                      size: 40,
+                      color: AppTheme.crystalGlow,
+                    ),
             ),
             const SizedBox(height: 10),
             // Crystal name
             Text(
-              crystal['name'] ?? 'Unknown Crystal',
+              crystal.name.isNotEmpty ? crystal.name : 'Unknown Crystal',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -290,19 +294,35 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
             const SizedBox(height: 5),
             // Crystal intents
-            if (crystal['intents'] != null && crystal['intents'].isNotEmpty)
-              Text(
-                crystal['intents'].take(2).join(', '),
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 12,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            if (intents.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: intents.take(3).map((intent) {
+                  return Chip(
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: AppTheme.crystalGlow.withOpacity(0.15),
+                    label: Text(
+                      intent,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 11,
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
+            const SizedBox(height: 8),
+            Text(
+              'Added $formattedDate',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 11,
+              ),
+            ),
             const Spacer(),
             // Personal notes indicator
-            if (crystal['personalNotes'] != null && crystal['personalNotes'].isNotEmpty)
+            if (entry.notes != null && entry.notes!.isNotEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -316,6 +336,30 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
                   ),
+                ),
+              ),
+            if (entry.primaryUses.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: entry.primaryUses.take(2).map((tag) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        tag,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
           ],

@@ -1,25 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'environment_config.dart';
 import 'storage_service.dart';
 
 class AdsService {
-  // Test ad unit IDs (replace with real ones for production)
-  static const String _androidBannerId = 'ca-app-pub-3940256099942544/6300978111';
-  static const String _iosBannerId = 'ca-app-pub-3940256099942544/2934735716';
-  static const String _androidInterstitialId = 'ca-app-pub-3940256099942544/1033173712';
-  static const String _iosInterstitialId = 'ca-app-pub-3940256099942544/4411468910';
-  static const String _androidRewardedId = 'ca-app-pub-3940256099942544/5224354917';
-  static const String _iosRewardedId = 'ca-app-pub-3940256099942544/1712485313';
-  
-  // Production ad unit IDs - TODO: Replace with your actual ad unit IDs
-  // static const String _androidBannerId = 'ca-app-pub-XXXXX/XXXXX';
-  // static const String _iosBannerId = 'ca-app-pub-XXXXX/XXXXX';
-  // static const String _androidInterstitialId = 'ca-app-pub-XXXXX/XXXXX';
-  // static const String _iosInterstitialId = 'ca-app-pub-XXXXX/XXXXX';
-  // static const String _androidRewardedId = 'ca-app-pub-XXXXX/XXXXX';
-  // static const String _iosRewardedId = 'ca-app-pub-XXXXX/XXXXX';
-  
+  static const String _testAndroidBannerId = 'ca-app-pub-3940256099942544/6300978111';
+  static const String _testIosBannerId = 'ca-app-pub-3940256099942544/2934735716';
+  static const String _testAndroidInterstitialId = 'ca-app-pub-3940256099942544/1033173712';
+  static const String _testIosInterstitialId = 'ca-app-pub-3940256099942544/4411468910';
+  static const String _testAndroidRewardedId = 'ca-app-pub-3940256099942544/5224354917';
+  static const String _testIosRewardedId = 'ca-app-pub-3940256099942544/1712485313';
+
+  static final EnvironmentConfig _config = EnvironmentConfig.instance;
+
   static BannerAd? _bannerAd;
   static InterstitialAd? _interstitialAd;
   static RewardedAd? _rewardedAd;
@@ -32,15 +26,17 @@ class AdsService {
   // Initialize Mobile Ads SDK
   static Future<void> initialize() async {
     if (_isInitialized) return;
-    
+
     try {
       await MobileAds.instance.initialize();
       _isInitialized = true;
-      
-      // Configure test devices
-      MobileAds.instance.updateRequestConfiguration(
-        RequestConfiguration(testDeviceIds: ['YOUR_TEST_DEVICE_ID']), // TODO: Add test device IDs
-      );
+
+      final testDevices = _config.adTestDeviceIds;
+      if (testDevices.isNotEmpty) {
+        MobileAds.instance.updateRequestConfiguration(
+          RequestConfiguration(testDeviceIds: testDevices),
+        );
+      }
     } catch (e) {
       print('Failed to initialize ads: $e');
     }
@@ -55,9 +51,13 @@ class AdsService {
   // Create and load banner ad
   static Future<BannerAd?> createBannerAd() async {
     if (!await shouldShowAds()) return null;
-    
-    final String adUnitId = Platform.isAndroid ? _androidBannerId : _iosBannerId;
-    
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      print('Banner ads are only supported on Android/iOS');
+      return null;
+    }
+
+    final adUnitId = _resolveBannerAdUnitId();
+
     _bannerAd = BannerAd(
       adUnitId: adUnitId,
       size: AdSize.banner,
@@ -83,9 +83,13 @@ class AdsService {
   // Create and load interstitial ad
   static Future<void> loadInterstitialAd() async {
     if (!await shouldShowAds()) return;
-    
-    final String adUnitId = Platform.isAndroid ? _androidInterstitialId : _iosInterstitialId;
-    
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      print('Interstitial ads are only supported on Android/iOS');
+      return;
+    }
+
+    final adUnitId = _resolveInterstitialAdUnitId();
+
     await InterstitialAd.load(
       adUnitId: adUnitId,
       request: const AdRequest(),
@@ -140,8 +144,13 @@ class AdsService {
   
   // Create and load rewarded ad
   static Future<void> loadRewardedAd() async {
-    final String adUnitId = Platform.isAndroid ? _androidRewardedId : _iosRewardedId;
-    
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      print('Rewarded ads are only supported on Android/iOS');
+      return;
+    }
+
+    final adUnitId = _resolveRewardedAdUnitId();
+
     await RewardedAd.load(
       adUnitId: adUnitId,
       request: const AdRequest(),
@@ -197,10 +206,70 @@ class AdsService {
         onUserEarnedReward(reward.amount.toInt());
       },
     );
-    
+
     _rewardedAd = null;
   }
-  
+
+  static String _resolveBannerAdUnitId() {
+    if (Platform.isAndroid) {
+      final id = _config.admobAndroidBannerId;
+      if (id.isEmpty) {
+        print('AdMob Android banner ID missing - using Google test unit');
+        return _testAndroidBannerId;
+      }
+      return id;
+    } else if (Platform.isIOS) {
+      final id = _config.admobIosBannerId;
+      if (id.isEmpty) {
+        print('AdMob iOS banner ID missing - using Google test unit');
+        return _testIosBannerId;
+      }
+      return id;
+    }
+
+    return _testAndroidBannerId;
+  }
+
+  static String _resolveInterstitialAdUnitId() {
+    if (Platform.isAndroid) {
+      final id = _config.admobAndroidInterstitialId;
+      if (id.isEmpty) {
+        print('AdMob Android interstitial ID missing - using Google test unit');
+        return _testAndroidInterstitialId;
+      }
+      return id;
+    } else if (Platform.isIOS) {
+      final id = _config.admobIosInterstitialId;
+      if (id.isEmpty) {
+        print('AdMob iOS interstitial ID missing - using Google test unit');
+        return _testIosInterstitialId;
+      }
+      return id;
+    }
+
+    return _testAndroidInterstitialId;
+  }
+
+  static String _resolveRewardedAdUnitId() {
+    if (Platform.isAndroid) {
+      final id = _config.admobAndroidRewardedId;
+      if (id.isEmpty) {
+        print('AdMob Android rewarded ID missing - using Google test unit');
+        return _testAndroidRewardedId;
+      }
+      return id;
+    } else if (Platform.isIOS) {
+      final id = _config.admobIosRewardedId;
+      if (id.isEmpty) {
+        print('AdMob iOS rewarded ID missing - using Google test unit');
+        return _testIosRewardedId;
+      }
+      return id;
+    }
+
+    return _testAndroidRewardedId;
+  }
+
   // Dispose all ads
   static void dispose() {
     _bannerAd?.dispose();

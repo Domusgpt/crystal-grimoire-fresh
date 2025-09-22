@@ -10,7 +10,7 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js';
-        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, query, orderBy, getDocs, limit } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         // Firebase configuration
         const firebaseConfig = {
@@ -41,15 +41,18 @@
             const authSection = document.getElementById('auth-section');
             const appSection = document.getElementById('app-section');
             const userEmail = document.getElementById('user-email');
-            
+            const authStatus = document.getElementById('auth-status');
+
             if (currentUser) {
                 authSection.style.display = 'none';
                 appSection.style.display = 'block';
                 userEmail.textContent = currentUser.email;
+                authStatus.textContent = 'Authenticated via Firebase';
                 loadUserData();
             } else {
                 authSection.style.display = 'block';
                 appSection.style.display = 'none';
+                authStatus.textContent = 'Awaiting sign-in';
             }
         }
 
@@ -68,7 +71,7 @@
                 showMessage('✅ Account created successfully!', 'success');
             } catch (error) {
                 if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
+                    showMessage('⚠️ Firebase Auth not configured yet. Update the Firebase configuration before signing in.', 'warning');
                 } else {
                     showMessage(`❌ ${error.message}`, 'error');
                 }
@@ -89,7 +92,7 @@
                 showMessage('✅ Signed in successfully!', 'success');
             } catch (error) {
                 if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
+                    showMessage('⚠️ Firebase Auth not configured yet. Update the Firebase configuration before signing in.', 'warning');
                 } else {
                     showMessage(`❌ ${error.message}`, 'error');
                 }
@@ -103,14 +106,6 @@
             } catch (error) {
                 console.error('Logout error:', error);
             }
-        }
-
-        window.skipAuth = function() {
-            // Simulate logged in state for demo
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('app-section').style.display = 'block';
-            document.getElementById('user-email').textContent = 'Demo User (No Auth)';
-            document.getElementById('auth-status').textContent = 'Demo Mode - Auth not required';
         }
 
         // Crystal guidance function
@@ -147,7 +142,7 @@
                                 <li>Create an account or sign in</li>
                                 <li>Try your question again</li>
                             </ol>
-                            <p><strong>Or use "Skip Auth" for demo mode!</strong></p>
+                            <p><strong>Tip:</strong> Configure Firebase Auth or use the local emulator suite for testing.</p>
                         </div>
                     `);
                 } else {
@@ -204,24 +199,50 @@
             setTimeout(() => messageDiv.innerHTML = '', 5000);
         }
 
-        function loadUserData() {
-            // Load user's previous sessions or data
-            console.log('Loading user data for:', currentUser?.email);
-        }
+        async function loadUserData() {
+            if (!currentUser) return;
 
-        // Navigation functions
-        window.showSection = function(sectionName) {
-            // Hide all sections
-            const sections = ['crystal-identification', 'moon-rituals', 'crystal-healing', 'dream-journal', 'sound-bath', 'marketplace'];
-            sections.forEach(section => {
-                const element = document.getElementById(section + '-section');
-                if (element) element.style.display = 'none';
-            });
-            
-            // Show selected section
-            const targetSection = document.getElementById(sectionName + '-section');
-            if (targetSection) {
-                targetSection.style.display = 'block';
+            const historyContainer = document.getElementById('guidance-history');
+            if (!historyContainer) return;
+
+            historyContainer.innerHTML = '<div class="loading">🔁 Fetching your recent guidance sessions...</div>';
+
+            try {
+                const guidanceRef = collection(db, 'users', currentUser.uid, 'guidance');
+                const recentGuidanceQuery = query(guidanceRef, orderBy('createdAt', 'desc'), limit(5));
+                const snapshot = await getDocs(recentGuidanceQuery);
+
+                if (snapshot.empty) {
+                    historyContainer.innerHTML = '<p class="empty-state">No guidance sessions yet. Ask a question above to begin your journey.</p>';
+                    return;
+                }
+
+                const entries = snapshot.docs.map((doc) => {
+                    const data = doc.data();
+                    const createdAt = data.createdAt?.toDate?.() ?? new Date();
+                    const intents = Array.isArray(data.context?.intents)
+                        ? data.context.intents.join(', ')
+                        : 'General insight';
+                    const overview = data.output?.overview || 'Guidance ready to view in the main app.';
+
+                    return `
+                        <li class="history-entry">
+                            <div class="history-header">
+                                <span class="history-date">${createdAt.toLocaleString()}</span>
+                                <span class="history-intents">Intents: ${intents}</span>
+                            </div>
+                            <p class="history-overview">${overview}</p>
+                        </li>
+                    `;
+                }).join('');
+
+                historyContainer.innerHTML = `
+                    <h3>Recent Guidance</h3>
+                    <ul class="history-list">${entries}</ul>
+                `;
+            } catch (error) {
+                console.error('Failed to load guidance history:', error);
+                historyContainer.innerHTML = `<div class="error">Unable to load recent guidance. ${error.message}</div>`;
             }
         }
 
@@ -378,13 +399,30 @@
             padding: 30px;
             border: 1px solid rgba(224, 170, 255, 0.2);
             transition: all 0.3s ease;
-            cursor: pointer;
+            cursor: default;
         }
 
         .feature-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 20px 40px rgba(157, 78, 221, 0.3);
             border-color: rgba(224, 170, 255, 0.5);
+        }
+
+        .feature-cta {
+            display: inline-block;
+            margin-top: 18px;
+            padding: 10px 18px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #9D4EDD, #5A189A);
+            color: #FFFFFF;
+            font-weight: 600;
+            text-decoration: none;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .feature-cta:hover {
+            box-shadow: 0 12px 24px rgba(93, 12, 214, 0.35);
+            transform: translateY(-2px);
         }
 
         .feature-icon {
@@ -609,20 +647,59 @@
             border-radius: 10px;
         }
 
+        .guidance-history {
+            margin-top: 35px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(224, 170, 255, 0.2);
+        }
+
+        .guidance-history h3 {
+            margin-bottom: 15px;
+            color: #E0AAFF;
+            font-size: 1.2em;
+        }
+
+        .history-list {
+            list-style: none;
+            display: grid;
+            gap: 16px;
+            padding: 0;
+        }
+
+        .history-entry {
+            padding: 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(224, 170, 255, 0.15);
+        }
+
+        .history-header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #E0AAFF;
+        }
+
+        .history-overview {
+            margin: 0;
+            color: #CDB4FF;
+            line-height: 1.4;
+        }
+
+        .empty-state {
+            color: #CDB4FF;
+            font-style: italic;
+            margin-top: 10px;
+        }
+
         .affirmation-text {
             font-style: italic;
             font-size: 1.1em;
             text-align: center;
             border: 2px solid rgba(224, 170, 255, 0.2);
-        }
-
-        .skip-auth-section {
-            text-align: center;
-            margin-top: 30px;
-            padding: 25px;
-            background: rgba(245, 158, 11, 0.1);
-            border-radius: 15px;
-            border: 1px solid rgba(245, 158, 11, 0.3);
         }
 
         .user-info {
@@ -707,13 +784,6 @@
 
                 <div id="auth-message"></div>
 
-                <div class="skip-auth-section">
-                    <h4>⚠️ Firebase Auth Not Configured Yet?</h4>
-                    <p>Try the app without authentication first:</p>
-                    <button onclick="skipAuth()" class="mystical-button" style="margin-top: 15px;">
-                        🚀 Skip Auth & Try App
-                    </button>
-                </div>
             </div>
         </div>
 
@@ -731,40 +801,46 @@
 
                 <!-- Feature Grid -->
                 <div class="feature-grid">
-                    <div class="feature-card" onclick="alert('Crystal Identification coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">📸</span>
                         <h3 class="feature-title">Crystal Identification</h3>
                         <p class="feature-description">Upload photos of your crystals and let our AI identify them with detailed metaphysical properties.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">Launch in App</a>
                     </div>
 
                     <div class="feature-card">
                         <span class="feature-icon">🔮</span>
                         <h3 class="feature-title">Mystical Guidance</h3>
                         <p class="feature-description">Ask questions and receive personalized crystal recommendations based on your intentions and needs.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">Use the Live Guidance</a>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Collection feature coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">💎</span>
                         <h3 class="feature-title">Your Collection</h3>
                         <p class="feature-description">Keep track of your crystal collection with photos, notes, and personalized insights.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">View Collection</a>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Moon Rituals coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">🌙</span>
                         <h3 class="feature-title">Moon Rituals</h3>
                         <p class="feature-description">Discover lunar-powered rituals and ceremonies aligned with current moon phases.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">Open Ritual Planner</a>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Crystal Healing coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">✨</span>
                         <h3 class="feature-title">Crystal Healing</h3>
                         <p class="feature-description">AI-generated healing layouts and chakra alignment guides using your crystals.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">Explore Healing Layouts</a>
                     </div>
 
-                    <div class="feature-card" onclick="alert('Dream Journal coming soon!')">
+                    <div class="feature-card">
                         <span class="feature-icon">💭</span>
                         <h3 class="feature-title">Dream Journal</h3>
                         <p class="feature-description">Record and analyze your dreams with crystal correlations and spiritual insights.</p>
+                        <a class="feature-cta" href="/#/home" target="_blank" rel="noopener">Log a Dream</a>
                     </div>
                 </div>
 
@@ -794,6 +870,7 @@
                     </form>
 
                     <div id="guidance-result"></div>
+                    <div id="guidance-history" class="guidance-history"></div>
                 </div>
             </div>
         </div>

@@ -105,7 +105,7 @@ class _VideoLoadingScreenState extends State<VideoLoadingScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Background video placeholder
+          // Procedural background animation renders behind the loading state
           _buildVideoBackground(),
           
           // Overlay with loading content
@@ -193,8 +193,7 @@ class _VideoLoadingScreenState extends State<VideoLoadingScreen>
   }
 
   Widget _buildVideoBackground() {
-    // In a real implementation, this would show the actual video
-    // For now, we'll create an animated background
+    // Procedurally generate an aurora-style background to avoid bundling large video assets
     return AnimatedBuilder(
       animation: _sparkleAnimation,
       builder: (context, child) {
