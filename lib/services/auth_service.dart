@@ -227,6 +227,22 @@ class AuthService extends ChangeNotifier {
       await StorageService.clearUserData();
     }
   }
+
+  static Future<void> signOutAndRedirect(BuildContext context) async {
+    try {
+      await signOut();
+      if (!context.mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/auth-check', (route) => false);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to sign out: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
   
   // Delete account
   static Future<void> deleteAccount() async {
@@ -275,50 +291,98 @@ class AuthService extends ChangeNotifier {
   // Private helper methods
   static Future<void> _createUserDocument(User user) async {
     final userDoc = _firestore.collection('users').doc(user.uid);
-    
-    final userData = {
-      'uid': user.uid,
-      'email': user.email,
-      'displayName': user.displayName ?? 'Crystal Seeker',
-      'photoURL': user.photoURL,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastLoginAt': FieldValue.serverTimestamp(),
-      'subscriptionTier': 'free',
-      'subscriptionStatus': 'active',
-      'monthlyIdentifications': 0,
-      'totalIdentifications': 0,
-      'metaphysicalQueries': 0,
-      'settings': {
-        'notifications': true,
-        'newsletter': true,
-        'darkMode': true,
-      },
+    final snapshot = await userDoc.get();
+    final existingData = snapshot.data();
+
+    final existingSettings = existingData != null && existingData['settings'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(existingData['settings'] as Map)
+        : <String, dynamic>{};
+    final mergedSettings = {
+      'notifications': existingSettings['notifications'] ?? true,
+      'sound': existingSettings['sound'] ?? true,
+      'vibration': existingSettings['vibration'] ?? true,
+      'darkMode': existingSettings['darkMode'] ?? true,
+      'meditationReminder': existingSettings['meditationReminder'] ?? 'Daily',
+      'crystalReminder': existingSettings['crystalReminder'] ?? 'Weekly',
+      'shareUsageData': existingSettings['shareUsageData'] ?? true,
+      'contentWarnings': existingSettings['contentWarnings'] ?? true,
+      'language': existingSettings['language'] ?? 'en',
     };
-    
-    await userDoc.set(userData, SetOptions(merge: true));
-  }
-  
-  static Future<void> _syncUserData(User user) async {
-    final userDoc = await _firestore.collection('users').doc(user.uid).get();
-    
-    if (userDoc.exists) {
-      final data = userDoc.data()!;
-      
-      // Update last login
-      await userDoc.reference.update({
-        'lastLoginAt': FieldValue.serverTimestamp(),
-      });
-      
-      // Sync subscription tier to local storage
-      if (data['subscriptionTier'] != null) {
-        await StorageService.saveSubscriptionTier(data['subscriptionTier']);
-      }
-      
-      // Sync other settings
-      // TODO: Implement more data syncing as needed
+
+    final existingProfile = existingData != null && existingData['profile'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(existingData['profile'] as Map)
+        : <String, dynamic>{};
+
+    final profile = <String, dynamic>{
+      'uid': user.uid,
+      'displayName': user.displayName ?? existingProfile['displayName'] ?? 'Crystal Seeker',
+      'photoUrl': user.photoURL ?? existingProfile['photoUrl'],
+      'subscriptionTier': existingProfile['subscriptionTier'] ?? 'free',
+      'subscriptionStatus': existingProfile['subscriptionStatus'] ?? 'active',
+      'lastLoginAt': FieldValue.serverTimestamp(),
+    };
+
+    if (existingProfile.containsKey('createdAt')) {
+      profile['createdAt'] = existingProfile['createdAt'];
     } else {
-      // Create user document if it doesn't exist
+      profile['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    final payload = {
+      'email': user.email ?? existingData?['email'] ?? '',
+      'profile': profile,
+      'settings': mergedSettings,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (!snapshot.exists) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    await userDoc.set(payload, SetOptions(merge: true));
+  }
+
+  static Future<void> _syncUserData(User user) async {
+    final docRef = _firestore.collection('users').doc(user.uid);
+    final userDoc = await docRef.get();
+
+    if (!userDoc.exists) {
       await _createUserDocument(user);
+      return;
+    }
+
+    final data = userDoc.data() ?? <String, dynamic>{};
+    final profile = data['profile'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(data['profile'] as Map)
+        : <String, dynamic>{};
+
+    await docRef.set({
+      'profile': {
+        ...profile,
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      },
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    final tier = profile['subscriptionTier']?.toString() ?? 'free';
+    await StorageService.saveSubscriptionTier(tier);
+
+    final settings = data['settings'];
+    if (settings is Map<String, dynamic>) {
+      await StorageService.saveUserSettings(settings);
+    } else {
+      await StorageService.clearUserSettings();
+    }
+
+    try {
+      final planDoc = await docRef.collection('plan').doc('active').get();
+      if (planDoc.exists && planDoc.data() != null) {
+        await StorageService.savePlanSnapshot(planDoc.data()!);
+      } else {
+        await StorageService.clearPlanSnapshot();
+      }
+    } catch (e) {
+      print('Failed to cache plan snapshot: $e');
     }
   }
   

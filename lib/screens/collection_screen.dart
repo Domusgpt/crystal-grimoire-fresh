@@ -1,9 +1,14 @@
+import 'package:characters/characters.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../models/crystal_collection.dart';
+import '../screens/crystal_identification_screen.dart';
+import '../services/auth_service.dart';
+import '../services/collection_service_v2.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glassmorphic_container.dart';
-import '../services/economy_service.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -13,67 +18,23 @@ class CollectionScreen extends StatefulWidget {
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  List<Map<String, dynamic>> _userCrystals = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+  CollectionServiceV2? _collectionService;
 
   @override
-  void initState() {
-    super.initState();
-    _loadUserCollection();
-  }
-
-  Future<void> _loadUserCollection() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final collectionSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('collection')
-            .orderBy('addedAt', descending: true)
-            .get();
-
-        final crystals = <Map<String, dynamic>>[];
-        for (final doc in collectionSnapshot.docs) {
-          final crystalData = doc.data();
-          // Get crystal details from library
-          if (crystalData['libraryRef'] != null) {
-            final libraryDoc = await FirebaseFirestore.instance
-                .doc(crystalData['libraryRef'])
-                .get();
-            if (libraryDoc.exists) {
-              crystals.add({
-                'id': doc.id,
-                'personalNotes': crystalData['notes'],
-                'tags': crystalData['tags'],
-                'addedAt': crystalData['addedAt'],
-                ...libraryDoc.data()!,
-              });
-            }
-          }
-        }
-
-        setState(() {
-          _userCrystals = crystals;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Please sign in to view your collection';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error loading collection: $e';
-        _isLoading = false;
-      });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final service = context.read<CollectionServiceV2>();
+    if (_collectionService != service) {
+      _collectionService = service;
+      service.initialize();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final service = context.watch<CollectionServiceV2>();
+    final isAuthenticated = AuthService.currentUser != null;
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -92,234 +53,429 @@ class _CollectionScreenState extends State<CollectionScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // App Bar
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      '🔮 My Crystal Collection',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Collection Grid
+              _buildHeader(context, service.collection.length),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
-                  child: _buildCollectionContent(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCollectionContent() {
-    if (_isLoading) {
-      return const GlassmorphicContainer(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: AppTheme.crystalGlow),
-              SizedBox(height: 20),
-              Text(
-                'Loading your crystal collection...',
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return GlassmorphicContainer(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                color: Colors.red,
-                size: 48,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                    _errorMessage = null;
-                  });
-                  _loadUserCollection();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.crystalGlow,
-                ),
-                child: const Text('Retry', style: TextStyle(color: Colors.black)),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_userCrystals.isEmpty) {
-      return GlassmorphicContainer(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.diamond_outlined,
-                color: AppTheme.crystalGlow,
-                size: 48,
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Your crystal collection is empty',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Start by identifying crystals to add them to your collection',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.crystalGlow,
-                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                ),
-                child: const Text(
-                  'Go Identify Crystals',
-                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return GlassmorphicContainer(
-      child: GridView.builder(
-        padding: const EdgeInsets.all(20),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.8,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-        ),
-        itemCount: _userCrystals.length,
-        itemBuilder: (context, index) {
-          final crystal = _userCrystals[index];
-          return _buildCrystalCard(crystal);
-        },
-      ),
-    );
-  }
-
-  Widget _buildCrystalCard(Map<String, dynamic> crystal) {
-    return GlassmorphicContainer(
-      borderRadius: 15,
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Crystal icon/image placeholder
-            Container(
-              width: double.infinity,
-              height: 80,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: LinearGradient(
-                  colors: [
-                    AppTheme.crystalGlow.withOpacity(0.3),
-                    AppTheme.amethystPurple.withOpacity(0.2),
-                  ],
-                ),
-              ),
-              child: const Icon(
-                Icons.diamond,
-                size: 40,
-                color: AppTheme.crystalGlow,
-              ),
-            ),
-            const SizedBox(height: 10),
-            // Crystal name
-            Text(
-              crystal['name'] ?? 'Unknown Crystal',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 5),
-            // Crystal intents
-            if (crystal['intents'] != null && crystal['intents'].isNotEmpty)
-              Text(
-                crystal['intents'].take(2).join(', '),
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 12,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            const Spacer(),
-            // Personal notes indicator
-            if (crystal['personalNotes'] != null && crystal['personalNotes'].isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.crystalGlow.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Has Notes',
-                  style: TextStyle(
-                    color: AppTheme.crystalGlow,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
+                  child: Column(
+                    children: [
+                      if (service.lastError != null)
+                        _ErrorBanner(
+                          message: service.lastError!,
+                          onRetry: service.isSyncing ? null : () => service.syncWithBackend(),
+                        ),
+                      if (service.isSyncing)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: LinearProgressIndicator(
+                            minHeight: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(AppTheme.crystalGlow),
+                            backgroundColor: Colors.transparent,
+                          ),
+                        ),
+                      Expanded(
+                        child: GlassmorphicContainer(
+                          padding: const EdgeInsets.all(16),
+                          child: _buildCollectionBody(
+                            service: service,
+                            isAuthenticated: isAuthenticated,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, int totalCount) {
+    final subtitle = totalCount == 0
+        ? 'Start your archive with a fresh identification'
+        : '$totalCount ${totalCount == 1 ? 'crystal catalogued' : 'crystals catalogued'}';
+
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '🔮 My Crystal Collection',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              backgroundColor: AppTheme.crystalGlow,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CrystalIdentificationScreen()),
+              );
+            },
+            icon: const Icon(Icons.add_circle_outline),
+            label: const Text(
+              'Identify',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollectionBody({
+    required CollectionServiceV2 service,
+    required bool isAuthenticated,
+  }) {
+    final entries = service.collection;
+
+    if (!service.isLoaded && entries.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: AppTheme.crystalGlow),
+            SizedBox(height: 16),
+            Text(
+              'Summoning your crystals...',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
           ],
         ),
+      );
+    }
+
+    return RefreshIndicator(
+      color: AppTheme.crystalGlow,
+      onRefresh: service.syncWithBackend,
+      child: entries.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                const SizedBox(height: 80),
+                const Icon(
+                  Icons.diamond_outlined,
+                  color: AppTheme.crystalGlow,
+                  size: 64,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  isAuthenticated
+                      ? 'Your collection is waiting for its first crystal.'
+                      : 'Sign in or create an account to start your crystal grimoire.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 24),
+                Center(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.crystalGlow,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const CrystalIdentificationScreen()),
+                      );
+                    },
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text(
+                      'Identify a Crystal',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 80),
+              ],
+            )
+          : GridView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              physics: const AlwaysScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.78,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+              ),
+              itemCount: entries.length,
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                return _CollectionEntryCard(
+                  entry: entry,
+                  onToggleFavorite: () => _toggleFavorite(service, entry),
+                );
+              },
+            ),
+    );
+  }
+
+  Future<void> _toggleFavorite(CollectionServiceV2 service, CollectionEntry entry) async {
+    try {
+      await service.updateCrystal(entry.id, isFavorite: !entry.isFavorite);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update favorite: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+}
+
+class _CollectionEntryCard extends StatelessWidget {
+  const _CollectionEntryCard({
+    required this.entry,
+    this.onToggleFavorite,
+  });
+
+  final CollectionEntry entry;
+  final VoidCallback? onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    final crystal = entry.crystal;
+    final imageUrl = _resolveImageUrl(entry);
+    final accentColor = AppTheme.crystalGlow;
+    final subtitle = crystal.scientificName.isNotEmpty
+        ? crystal.scientificName
+        : (crystal.aliases.isNotEmpty ? crystal.aliases.first : null);
+    final tags = entry.primaryUses.isNotEmpty
+        ? entry.primaryUses.take(3).toList()
+        : crystal.metaphysicalProperties.take(3).toList();
+    final dateText = DateFormat.yMMMd().format(entry.dateAdded.toLocal());
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.18)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: AspectRatio(
+              aspectRatio: 1.4,
+              child: imageUrl != null
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _ImageFallback(name: crystal.name, accentColor: accentColor),
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: Colors.black26,
+                          child: const Center(
+                            child: CircularProgressIndicator(color: AppTheme.crystalGlow),
+                          ),
+                        );
+                      },
+                    )
+                  : _ImageFallback(name: crystal.name, accentColor: accentColor),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            crystal.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const SizedBox(height: 8),
+          if (tags.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: -6,
+              children: [
+                for (final tag in tags)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: accentColor.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      tag,
+                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                    ),
+                  ),
+              ],
+            ),
+          if (entry.notes != null && entry.notes!.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              entry.notes!,
+              style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const Spacer(),
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_month,
+                size: 16,
+                color: Colors.white.withOpacity(0.6),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                dateText,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: onToggleFavorite,
+                icon: Icon(entry.isFavorite ? Icons.favorite : Icons.favorite_border),
+                color: entry.isFavorite ? Colors.pinkAccent : Colors.white70,
+                tooltip: entry.isFavorite ? 'Remove from favorites' : 'Mark as favorite',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _resolveImageUrl(CollectionEntry entry) {
+    if (entry.images.isNotEmpty) {
+      final candidate = entry.images.first;
+      if (_isNetworkImage(candidate)) {
+        return candidate;
+      }
+    }
+
+    if (entry.crystal.imageUrls.isNotEmpty) {
+      final candidate = entry.crystal.imageUrls.first;
+      if (_isNetworkImage(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  bool _isNetworkImage(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+  }
+}
+
+class _ImageFallback extends StatelessWidget {
+  const _ImageFallback({required this.name, required this.accentColor});
+
+  final String name;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = name.trim();
+    final initial = trimmed.isNotEmpty
+        ? trimmed.characters.first.toUpperCase()
+        : '✶';
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accentColor.withOpacity(0.35),
+            accentColor.withOpacity(0.15),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            fontSize: 42,
+            fontWeight: FontWeight.bold,
+            color: Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message, this.onRetry});
+
+  final String message;
+  final Future<void> Function()? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          if (onRetry != null)
+            TextButton(
+              onPressed: () => onRetry!(),
+              child: const Text('Retry'),
+            ),
+        ],
       ),
     );
   }

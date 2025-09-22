@@ -105,7 +105,7 @@ class _VideoLoadingScreenState extends State<VideoLoadingScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Background video placeholder
+          // Background video layer
           _buildVideoBackground(),
           
           // Overlay with loading content

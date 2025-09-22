@@ -24,16 +24,34 @@ enum AIProvider {
 /// Multi-provider AI service for crystal identification
 class AIService {
   // Provider-specific endpoints
-  static const Map<AIProvider, String> _endpoints = {
-    AIProvider.gemini: 'https://generativelanguage.googleapis.com/v1beta/models/',
-    AIProvider.openai: 'https://api.openai.com/v1/chat/completions',
-    AIProvider.claude: 'https://api.anthropic.com/v1/messages',
-    AIProvider.groq: 'https://api.groq.com/openai/v1/chat/completions',
-    AIProvider.replicate: 'https://api.replicate.com/v1/predictions',
-  };
+  static Map<AIProvider, String> get _endpoints => {
+        AIProvider.gemini:
+            'https://generativelanguage.googleapis.com/v1beta/models/',
+        AIProvider.openai: '${ApiConfig.openaiBaseUrl}/chat/completions',
+        AIProvider.claude: ApiConfig.claudeBaseUrl,
+        AIProvider.groq: ApiConfig.groqBaseUrl,
+        AIProvider.replicate: ApiConfig.replicateBaseUrl,
+      };
 
-  // Current provider (default to Gemini for free testing)
-  static AIProvider currentProvider = AIProvider.gemini;
+  // Current provider (default defined by environment)
+  static AIProvider currentProvider = _resolveDefaultProvider();
+
+  static AIProvider _resolveDefaultProvider() {
+    final providerName = ApiConfig.defaultProvider.toLowerCase().trim();
+    switch (providerName) {
+      case 'openai':
+        return AIProvider.openai;
+      case 'claude':
+        return AIProvider.claude;
+      case 'groq':
+        return AIProvider.groq;
+      case 'replicate':
+        return AIProvider.replicate;
+      case 'gemini':
+      default:
+        return AIProvider.gemini;
+    }
+  }
   
   // Enhanced prompt for premium users - Maximum accuracy
   static const String _premiumSpiritualAdvisorPrompt = '''
@@ -165,9 +183,7 @@ helping souls connect with their crystalline teachers and guides.
 
       // DEMO MODE or FALLBACK - If processing fails, use demo data
       try {
-        // Check if we should use demo mode
-        if (ApiConfig.geminiApiKey == 'YOUR_GEMINI_API_KEY_HERE' &&
-            ApiConfig.openaiApiKey == 'YOUR_OPENAI_API_KEY_HERE') {
+        if (!ApiConfig.hasConfiguredProvider) {
           return _getDemoIdentification(sessionId, images);
         }
       } catch (e) {
@@ -231,9 +247,10 @@ helping souls connect with their crystalline teachers and guides.
   /// Google Gemini API call - Model selection based on user tier
   static Future<String> _callGemini(List<String> base64Images, String? userContext, {IdentificationTier? tier}) async {
     final apiKey = ApiConfig.geminiApiKey;
-    if (apiKey.isEmpty || apiKey == 'YOUR_GEMINI_API_KEY') {
-      throw Exception('Please set your Gemini API key in api_config.dart\n'
-                     'Get a FREE key at: https://makersuite.google.com/app/apikey');
+    if (apiKey.isEmpty) {
+      throw Exception(
+        'Gemini API key missing. Provide GEMINI_API_KEY via --dart-define or environment variables.',
+      );
     }
 
     // Select model based on tier
@@ -325,8 +342,10 @@ helping souls connect with their crystalline teachers and guides.
   /// OpenAI API call - Model selection based on user tier
   static Future<String> _callOpenAI(List<String> base64Images, String? userContext, {IdentificationTier? tier}) async {
     final apiKey = ApiConfig.openaiApiKey;
-    if (apiKey.isEmpty || apiKey == 'YOUR_OPENAI_API_KEY') {
-      throw Exception('Please set your OpenAI API key in api_config.dart');
+    if (apiKey.isEmpty) {
+      throw Exception(
+        'OpenAI API key missing. Provide OPENAI_API_KEY via --dart-define or environment variables.',
+      );
     }
 
     // Select model based on tier
@@ -408,9 +427,10 @@ helping souls connect with their crystalline teachers and guides.
   /// Groq API call - Fast and cheap!
   static Future<String> _callGroq(List<String> base64Images, String? userContext) async {
     final apiKey = ApiConfig.groqApiKey;
-    if (apiKey.isEmpty || apiKey == 'YOUR_GROQ_API_KEY') {
-      throw Exception('Please set your Groq API key in api_config.dart\n'
-                     'Get a FREE key at: https://console.groq.com/keys');
+    if (apiKey.isEmpty) {
+      throw Exception(
+        'Groq API key missing. Provide GROQ_API_KEY via --dart-define or environment variables.',
+      );
     }
 
     // Note: Groq doesn't support vision yet, so we'll use text description
@@ -454,24 +474,20 @@ helping souls connect with their crystalline teachers and guides.
       case IdentificationTier.premium:
         // Pro users and new user bonus get the best models
         // Prefer GPT-4o for highest accuracy, fallback to Claude 3.5
-        if (ApiConfig.openaiApiKey != 'YOUR_OPENAI_API_KEY_HERE' && 
-            ApiConfig.openaiApiKey.isNotEmpty) {
+        if (ApiConfig.openaiApiKey.isNotEmpty) {
           return AIProvider.openai; // GPT-4o
-        } else if (ApiConfig.claudeApiKey != 'YOUR_CLAUDE_API_KEY_HERE' && 
-                   ApiConfig.claudeApiKey.isNotEmpty) {
+        } else if (ApiConfig.claudeApiKey.isNotEmpty) {
           return AIProvider.claude; // Claude 3.5 Sonnet
         } else {
           return AIProvider.gemini; // Fallback to Gemini Pro
         }
-        
+
       case IdentificationTier.enhanced:
         // Premium users get mid-tier models
         // Prefer Gemini Pro or GPT-4o-mini
-        if (ApiConfig.geminiApiKey != 'YOUR_GEMINI_API_KEY_HERE' && 
-            ApiConfig.geminiApiKey.isNotEmpty) {
+        if (ApiConfig.geminiApiKey.isNotEmpty) {
           return AIProvider.gemini; // Will use Gemini Pro model
-        } else if (ApiConfig.openaiApiKey != 'YOUR_OPENAI_API_KEY_HERE' && 
-                   ApiConfig.openaiApiKey.isNotEmpty) {
+        } else if (ApiConfig.openaiApiKey.isNotEmpty) {
           return AIProvider.openai; // Will use GPT-4o-mini
         } else {
           return AIProvider.gemini; // Fallback

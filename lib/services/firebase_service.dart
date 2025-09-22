@@ -377,14 +377,14 @@ class FirebaseService extends ChangeNotifier {
     };
   }
   
-  /// Sign in with Google OAuth (placeholder for now)
+  /// Sign in with Google OAuth (not yet implemented in REST shim)
   Future<UserProfile> signInWithGoogle() async {
     // TODO: Implement Google OAuth flow
     // For now, throw an exception to prevent usage
     throw FirebaseException('Google OAuth not yet implemented - please use email/password authentication');
   }
   
-  /// Sign in with Apple OAuth (placeholder for now)
+  /// Sign in with Apple OAuth (not yet implemented in REST shim)
   Future<UserProfile> signInWithApple() async {
     // TODO: Implement Apple OAuth flow
     // For now, throw an exception to prevent usage
