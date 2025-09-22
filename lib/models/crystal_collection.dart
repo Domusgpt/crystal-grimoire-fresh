@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'crystal.dart';
 import 'crystal_v2.dart' as v2;
 
@@ -96,11 +97,26 @@ class CollectionEntry {
 
   /// Create from JSON
   factory CollectionEntry.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    final crystalData = json['crystal'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(json['crystal'])
+        : <String, dynamic>{};
+
+    if (!crystalData.containsKey('id') && json['id'] != null) {
+      crystalData['id'] = json['id'];
+    }
+
     return CollectionEntry(
       id: json['id'],
       userId: json['userId'],
-      crystal: Crystal.fromJson(json['crystal']),
-      dateAdded: DateTime.parse(json['dateAdded']),
+      crystal: Crystal.fromJson(crystalData),
+      dateAdded: parseDate(json['dateAdded']),
       source: json['source'],
       location: json['location'],
       price: json['price']?.toDouble(),
@@ -199,10 +215,17 @@ class UsageLog {
   }
 
   factory UsageLog.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
     return UsageLog(
       id: json['id'],
       collectionEntryId: json['collectionEntryId'],
-      dateTime: DateTime.parse(json['dateTime']),
+      dateTime: parseDate(json['dateTime']),
       purpose: json['purpose'],
       intention: json['intention'],
       result: json['result'],

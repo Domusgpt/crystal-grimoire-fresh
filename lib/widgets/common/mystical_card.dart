@@ -393,8 +393,9 @@ class MysticalFeatureCard extends StatelessWidget {
           ),
           ElevatedButton(
             onPressed: () {
+              final navigator = Navigator.of(context, rootNavigator: true);
               Navigator.pop(context);
-              // TODO: Navigate to subscription screen
+              navigator.pushNamed('/subscription');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber,

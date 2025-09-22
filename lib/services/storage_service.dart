@@ -13,6 +13,8 @@ class StorageService {
   static const String _queryDateKey = 'query_date';
   static const String _userProfileKey = 'user_profile';
   static const String _adMetricsKey = 'ad_metrics';
+  static const String _settingsSnapshotKey = 'user_settings_snapshot';
+  static const String _planSnapshotKey = 'user_plan_snapshot';
   
   bool _isInitialized = false;
   
@@ -92,6 +94,66 @@ class StorageService {
       'identifications': 0,
       'lastReset': DateTime.now().toIso8601String(),
     });
+  }
+
+  // Settings snapshot helpers
+  static Future<void> saveUserSettings(Map<String, dynamic> settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_settingsSnapshotKey, json.encode(settings));
+  }
+
+  static Future<Map<String, dynamic>?> getUserSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString(_settingsSnapshotKey);
+    if (jsonStr == null) {
+      return null;
+    }
+
+    try {
+      final decoded = json.decode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return Map<String, dynamic>.from(decoded as Map);
+    } catch (e) {
+      print('Failed to decode cached settings: $e');
+      return null;
+    }
+  }
+
+  static Future<void> clearUserSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_settingsSnapshotKey);
+  }
+
+  // Plan snapshot helpers
+  static Future<void> savePlanSnapshot(Map<String, dynamic> plan) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_planSnapshotKey, json.encode(plan));
+  }
+
+  static Future<Map<String, dynamic>?> getPlanSnapshot() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString(_planSnapshotKey);
+    if (jsonStr == null) {
+      return null;
+    }
+
+    try {
+      final decoded = json.decode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return Map<String, dynamic>.from(decoded as Map);
+    } catch (e) {
+      print('Failed to decode cached plan snapshot: $e');
+      return null;
+    }
+  }
+
+  static Future<void> clearPlanSnapshot() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_planSnapshotKey);
   }
   
   // Founders Account Management
