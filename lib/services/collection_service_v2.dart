@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/crystal_collection.dart';
 import '../models/crystal.dart';
-import 'backend_service.dart';
 
 /// Production-ready Collection Service with proper instance management
 /// This is NOT a static service - it uses proper dependency injection
@@ -16,6 +18,11 @@ class CollectionServiceV2 extends ChangeNotifier {
   bool _isLoaded = false;
   bool _isSyncing = false;
   String? _lastError;
+  String? _userId;
+  StreamSubscription<User?>? _authSubscription;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final Map<String, Crystal> _libraryCache = {};
   
   /// Get the current collection
   List<CollectionEntry> get collection => List.unmodifiable(_collection);
@@ -35,24 +42,30 @@ class CollectionServiceV2 extends ChangeNotifier {
   /// Initialize the collection service
   Future<void> initialize() async {
     if (_isLoaded) return;
-    
+
     try {
       await _loadFromLocal();
+      _authSubscription = _auth.authStateChanges().listen(_handleAuthChange);
+      await _handleAuthChange(_auth.currentUser);
       _isLoaded = true;
       notifyListeners();
-      
-      // Sync with backend if needed
-      // await syncWithBackend(); // TODO: Enable when backend is ready
+
     } catch (e) {
       _lastError = e.toString();
       notifyListeners();
     }
   }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
   
   /// Load collection from local storage
   Future<void> _loadFromLocal() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // Load collection
     final collectionJson = prefs.getString(_collectionKey);
     if (collectionJson != null) {
@@ -65,6 +78,93 @@ class CollectionServiceV2 extends ChangeNotifier {
     if (logsJson != null) {
       final List<dynamic> decoded = json.decode(logsJson);
       _usageLogs = decoded.map((e) => UsageLog.fromJson(e)).toList();
+    }
+  }
+
+  Future<void> _handleAuthChange(User? user) async {
+    _userId = user?.uid;
+
+    if (user == null) {
+      _collection.clear();
+      _usageLogs.clear();
+      await _saveToLocal();
+      notifyListeners();
+      return;
+    }
+
+    await _loadFromBackend(user.uid);
+  }
+
+  CollectionReference<Map<String, dynamic>> _collectionRef(String uid) =>
+      _firestore.collection('users').doc(uid).collection('collection');
+
+  CollectionReference<Map<String, dynamic>> _usageLogsRef(String uid) =>
+      _firestore.collection('users').doc(uid).collection('collectionLogs');
+
+  Future<void> _loadFromBackend(String uid) async {
+    try {
+      final collectionSnapshot = await _collectionRef(uid)
+          .orderBy('addedAt', descending: true)
+          .get();
+      final logsSnapshot = await _usageLogsRef(uid)
+          .orderBy('dateTime', descending: true)
+          .limit(200)
+          .get();
+
+      final entries = await Future.wait(collectionSnapshot.docs.map((doc) async {
+        final data = Map<String, dynamic>.from(doc.data());
+        final libraryRef = (data['libraryRef'] ?? '').toString();
+        final crystal = await _fetchCrystalFromLibrary(libraryRef);
+        final tags = _stringList(data['tags']);
+        final notes = data['notes']?.toString();
+        final addedAt = _parseTimestamp(data['addedAt']) ?? DateTime.now();
+
+        return CollectionEntry(
+          id: doc.id,
+          userId: uid,
+          crystal: crystal.copyWith(
+            userNotes: notes,
+            metaphysicalProperties:
+                tags.isNotEmpty ? tags : crystal.metaphysicalProperties,
+          ),
+          dateAdded: addedAt,
+          source: 'Personal Collection',
+          location: null,
+          price: null,
+          size: 'medium',
+          quality: 'tumbled',
+          primaryUses: tags,
+          usageCount: 0,
+          userRating: 0,
+          notes: notes,
+          images: List<String>.from(data['images'] ?? const <String>[]),
+          isActive: true,
+          isFavorite: data['isFavorite'] == true,
+          customProperties: {
+            ...(data['customProperties'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(data['customProperties'])
+                : <String, dynamic>{}),
+            'libraryRef': libraryRef,
+            'tags': tags,
+          },
+          libraryRef: libraryRef,
+        );
+      }));
+
+      _collection = entries;
+
+      _usageLogs = logsSnapshot.docs.map((doc) {
+        final data = Map<String, dynamic>.from(doc.data());
+        data['id'] = doc.id;
+        return UsageLog.fromJson(data);
+      }).toList();
+
+      await _saveToLocal();
+      _lastError = null;
+      notifyListeners();
+    } catch (e) {
+      _lastError = 'Failed to load collection: $e';
+      notifyListeners();
     }
   }
   
@@ -93,9 +193,17 @@ class CollectionServiceV2 extends ChangeNotifier {
     String quality = 'tumbled',
     List<String>? images,
   }) async {
+    final uid = _userId ?? _auth.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      throw StateError('Cannot add a crystal without an authenticated user.');
+    }
+
+    _userId = uid;
+    final entryId = _collectionRef(uid).doc().id;
+    final libraryRef = _normalizeLibraryRef(crystal);
     final entry = CollectionEntry(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      userId: 'local-user', // TODO: Get from auth service
+      id: entryId,
+      userId: uid,
       crystal: crystal,
       dateAdded: DateTime.now(),
       notes: notes,
@@ -108,15 +216,15 @@ class CollectionServiceV2 extends ChangeNotifier {
       size: size,
       quality: quality,
       location: location,
+      libraryRef: libraryRef,
     );
-    
+
     _collection.add(entry);
     await _saveToLocal();
     notifyListeners();
-    
-    // Sync with backend if needed
-    // await _syncEntryToBackend(entry); // TODO: Enable when backend is ready
-    
+
+    await _syncEntryToBackend(entry);
+
     return entry;
   }
   
@@ -153,24 +261,27 @@ class CollectionServiceV2 extends ChangeNotifier {
       usageCount: entry.usageCount,
       userRating: userRating ?? entry.userRating,
       isActive: entry.isActive,
+      libraryRef: entry.libraryRef,
     );
     
     _collection[index] = updated;
     await _saveToLocal();
     notifyListeners();
-    
-    // Sync with backend if needed
-    // await _syncEntryToBackend(updated); // TODO: Enable when backend is ready
+
+    if (_userId != null) {
+      await _syncEntryToBackend(updated);
+    }
   }
-  
+
   /// Remove a crystal from the collection
   Future<void> removeCrystal(String entryId) async {
     _collection.removeWhere((e) => e.id == entryId);
     await _saveToLocal();
     notifyListeners();
-    
-    // Sync deletion with backend if needed
-    // await _deleteFromBackend(entryId); // TODO: Enable when backend is ready
+
+    if (_userId != null) {
+      await _deleteFromBackend(entryId);
+    }
   }
   
   /// Log crystal usage
@@ -202,15 +313,24 @@ class CollectionServiceV2 extends ChangeNotifier {
     
     // Update usage count
     final index = _collection.indexWhere((e) => e.id == entryId);
+    CollectionEntry? updatedEntry;
     if (index != -1) {
       final entry = _collection[index];
-      _collection[index] = entry.copyWith(
+      updatedEntry = entry.copyWith(
         usageCount: entry.usageCount + 1,
       );
+      _collection[index] = updatedEntry;
     }
-    
+
     await _saveToLocal();
     notifyListeners();
+
+    if (_userId != null) {
+      await _syncUsageLog(log);
+      if (updatedEntry != null) {
+        await _syncEntryToBackend(updatedEntry);
+      }
+    }
   }
   
   /// Get crystals by chakra
@@ -292,21 +412,13 @@ class CollectionServiceV2 extends ChangeNotifier {
   
   /// Sync with backend
   Future<void> syncWithBackend() async {
-    if (_isSyncing) return;
-    
+    if (_isSyncing || _userId == null) return;
+
     _isSyncing = true;
     notifyListeners();
-    
+
     try {
-      // Get collection from backend - stub implementation
-      final backendData = <String, dynamic>{}; // TODO: Implement real backend sync
-      
-      if (backendData != null && backendData['collection'] != null) {
-        final List<dynamic> backendCollection = backendData['collection'];
-        _collection = backendCollection.map((e) => CollectionEntry.fromJson(e)).toList();
-        await _saveToLocal();
-      }
-      
+      await _loadFromBackend(_userId!);
       _lastError = null;
     } catch (e) {
       _lastError = 'Sync failed: $e';
@@ -315,17 +427,56 @@ class CollectionServiceV2 extends ChangeNotifier {
       notifyListeners();
     }
   }
-  
+
   /// Sync single entry to backend
   Future<void> _syncEntryToBackend(CollectionEntry entry) async {
-    // TODO: Implement real backend sync
-    print('Would sync entry to backend: ${entry.id}');
+    final uid = _userId;
+    if (uid == null) return;
+
+    final docRef = _collectionRef(uid).doc(entry.id);
+    final payload = <String, dynamic>{
+      'libraryRef': entry.libraryRef,
+      'notes': entry.notes ?? '',
+      'tags': List<String>.from(entry.primaryUses),
+      'addedAt': Timestamp.fromDate(entry.dateAdded),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    try {
+      final snapshot = await docRef.get();
+      if (!snapshot.exists) {
+        payload['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      await docRef.set(payload, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Failed to sync collection entry ${entry.id}: $e');
+      rethrow;
+    }
   }
-  
+
   /// Delete entry from backend
   Future<void> _deleteFromBackend(String entryId) async {
-    // TODO: Implement real backend deletion
-    print('Would delete entry from backend: $entryId');
+    final uid = _userId;
+    if (uid == null) return;
+
+    await _collectionRef(uid).doc(entryId).delete();
+
+    final logs = await _usageLogsRef(uid)
+        .where('collectionEntryId', isEqualTo: entryId)
+        .get();
+
+    for (final doc in logs.docs) {
+      await doc.reference.delete();
+    }
+  }
+
+  Future<void> _syncUsageLog(UsageLog log) async {
+    final uid = _userId;
+    if (uid == null) return;
+
+    final data = log.toJson();
+    await _usageLogsRef(uid).doc(log.id).set(data, SetOptions(merge: true));
   }
   
   /// Export collection data
@@ -354,8 +505,6 @@ class CollectionServiceV2 extends ChangeNotifier {
     await _saveToLocal();
     notifyListeners();
     
-    // Sync with backend if needed
-    // await syncWithBackend(); // TODO: Enable when backend is ready
   }
   
   /// Clear all data
@@ -364,5 +513,109 @@ class CollectionServiceV2 extends ChangeNotifier {
     _usageLogs.clear();
     await _saveToLocal();
     notifyListeners();
+  }
+
+  String _normalizeLibraryRef(Crystal crystal) {
+    final id = crystal.id.trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    return _slugify(crystal.name);
+  }
+
+  List<String> _stringList(dynamic input) {
+    if (input is Iterable) {
+      return input
+          .map((value) => value?.toString() ?? '')
+          .where((value) => value.trim().isNotEmpty)
+          .map((value) => value.trim())
+          .toList();
+    }
+    return const <String>[];
+  }
+
+  DateTime? _parseTimestamp(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+    }
+    if (value is double) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+    }
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  Future<Crystal> _fetchCrystalFromLibrary(String libraryRef) async {
+    final key = libraryRef.trim();
+    if (key.isNotEmpty && _libraryCache.containsKey(key)) {
+      return _libraryCache[key]!;
+    }
+
+    DocumentReference<Map<String, dynamic>> docRef;
+    if (key.contains('/')) {
+      docRef = _firestore.doc(key);
+    } else {
+      docRef = _firestore.collection('crystal_library').doc(
+        key.isNotEmpty ? key : _slugify('mystery'),
+      );
+    }
+
+    try {
+      final snapshot = await docRef.get();
+      final data = snapshot.data();
+      if (data != null) {
+        final payload = Map<String, dynamic>.from(data)
+          ..putIfAbsent('id', () => snapshot.id)
+          ..putIfAbsent('name', () => 'Mystery Crystal')
+          ..putIfAbsent('scientificName', () => '')
+          ..putIfAbsent('description', () => '')
+          ..putIfAbsent('careInstructions', () => '')
+          ..putIfAbsent('metaphysicalProperties', () => const <String>[])
+          ..putIfAbsent('healingProperties', () => const <String>[])
+          ..putIfAbsent('chakras', () => const <String>[])
+          ..putIfAbsent('elements', () => const <String>[])
+          ..putIfAbsent('imageUrls', () => const <String>[]);
+
+        final crystal = Crystal.fromJson(payload);
+        _libraryCache[key.isNotEmpty ? key : payload['id'].toString()] = crystal;
+        return crystal;
+      }
+    } catch (e) {
+      debugPrint('Failed to load crystal library reference "$key": $e');
+    }
+
+    final fallbackId = key.isNotEmpty ? key : _slugify('mystery');
+    final fallback = Crystal(
+      id: fallbackId,
+      name: 'Mystery Crystal',
+      scientificName: '',
+      description: 'Crystal details will sync once the library entry is available.',
+      careInstructions: '',
+    );
+
+    if (key.isNotEmpty) {
+      _libraryCache[key] = fallback;
+    }
+
+    return fallback;
+  }
+
+  String _slugify(String value) {
+    final sanitized = value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-{2,}'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+
+    if (sanitized.isEmpty) {
+      return 'crystal-${DateTime.now().millisecondsSinceEpoch}';
+    }
+
+    return sanitized;
   }
 }
