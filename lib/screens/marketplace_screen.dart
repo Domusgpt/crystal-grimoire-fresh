@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -36,10 +38,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
 
   List<MarketplaceListing> _listings = [];
   List<MarketplaceListing> _myListings = [];
+  List<MarketplaceListing> _pendingListings = [];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
       _marketplaceSubscription;
+  StreamSubscription<User?>? _authSubscription;
   bool _isLoading = true;
   String? _loadError;
+  bool _isAdmin = false;
+  final Set<String> _moderatingListingIds = <String>{};
 
   @override
   void initState() {
@@ -60,6 +66,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
 
     _tabController = TabController(length: 3, vsync: this);
 
+    _authSubscription =
+        FirebaseAuth.instance.userChanges().listen((user) {
+      _resolveAdminStatus(user: user);
+    });
+    unawaited(_resolveAdminStatus(user: FirebaseAuth.instance.currentUser));
+
     _listenToListings();
   }
 
@@ -67,7 +79,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
   void dispose() {
     _shimmerController.dispose();
     _tabController.dispose();
+    _authSubscription?.cancel();
     _marketplaceSubscription?.cancel();
+    _moderatingListingIds.clear();
     super.dispose();
   }
 
@@ -83,19 +97,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
         .orderBy('createdAt', descending: true)
         .snapshots()
         .listen((snapshot) {
-      final allListings = snapshot.docs
+      final docs = snapshot.docs
           .map((doc) => MarketplaceListing.fromDocument(doc))
-          .where((listing) => listing.status == 'active')
           .toList();
+      final activeListings =
+          docs.where((listing) => listing.status == 'active').toList();
 
       final currentUserId = FirebaseAuth.instance.currentUser?.uid;
       setState(() {
-        _listings = allListings;
+        _listings = activeListings;
         _myListings = currentUserId == null
             ? []
-            : allListings
+            : docs
                 .where((listing) => listing.sellerId == currentUserId)
                 .toList();
+        _pendingListings =
+            docs.where((listing) => listing.status == 'pending_review').toList();
         _isLoading = false;
         _loadError = null;
       });
@@ -105,6 +122,55 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
         _loadError = 'Failed to load marketplace: $error';
       });
     });
+  }
+
+  Future<void> _resolveAdminStatus({User? user}) async {
+    final currentUser = user ?? FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      if (_isAdmin) {
+        _updateAdminTabs(false);
+      }
+      return;
+    }
+
+    try {
+      final token = await currentUser.getIdTokenResult(true);
+      final claims = token.claims ?? {};
+      final roles = claims['roles'];
+      final hasAdminRole =
+          claims['role'] == 'admin' ||
+          claims['admin'] == true ||
+          (roles is List && roles.contains('admin'));
+      _updateAdminTabs(hasAdminRole);
+    } catch (error) {
+      debugPrint('Failed to resolve admin status: $error');
+      _updateAdminTabs(false);
+    }
+  }
+
+  void _updateAdminTabs(bool nextIsAdmin) {
+    if (_isAdmin == nextIsAdmin) {
+      return;
+    }
+
+    final previousIndex = _tabController.index;
+    final newLength = nextIsAdmin ? 4 : 3;
+    final clampedIndex = previousIndex.clamp(0, newLength - 1).toInt();
+
+    _tabController.dispose();
+    _tabController = TabController(
+      length: newLength,
+      vsync: this,
+      initialIndex: clampedIndex,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isAdmin = nextIsAdmin;
+      });
+    } else {
+      _isAdmin = nextIsAdmin;
+    }
   }
 
   List<MarketplaceListing> _filteredMarketplaceListings() {
@@ -150,38 +216,91 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
       return false;
     }
 
+    final pendingOrActive = _myListings
+        .where((listing) =>
+            listing.status == 'active' ||
+            listing.status == 'pending_review')
+        .toList();
+    if (pendingOrActive.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You already have five active or pending listings. Archive one before submitting another.',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+      return false;
+    }
+
+    final latestSubmission = pendingOrActive
+        .map((listing) => listing.createdAt?.toDate())
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, (previous, element) {
+      if (previous == null) return element;
+      return element.isAfter(previous) ? element : previous;
+    });
+
+    if (latestSubmission != null) {
+      final minutesSince = DateTime.now().difference(latestSubmission).inMinutes;
+      const cooldownMinutes = 12 * 60;
+      if (minutesSince < cooldownMinutes) {
+        final remaining = cooldownMinutes - minutesSince;
+        final remainingHours = (remaining / 60).ceil();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'You can submit a new listing in about $remainingHours hour(s).',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+        return false;
+      }
+    }
+
     try {
-      await FirebaseFirestore.instance.collection('marketplace').add({
+      final callable = FirebaseFunctions.instance.httpsCallable('createListing');
+      await callable.call({
         'title': title,
         'description': description,
         'priceCents': (price * 100).round(),
-        'sellerId': user.uid,
-        'sellerName': user.displayName ?? user.email ?? 'Crystal Seller',
-        'status': 'active',
         'category': category,
-        'crystalId': (crystalId?.isNotEmpty == true ? crystalId : _slugify(title)),
-        'imageUrl': imageUrl?.isNotEmpty == true ? imageUrl : null,
-        'isVerifiedSeller': false,
-        'rating': 5.0,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'crystalId':
+            (crystalId?.isNotEmpty == true ? crystalId : _slugify(title)),
+        if (imageUrl?.isNotEmpty == true) 'imageUrl': imageUrl,
+        'currency': 'usd',
+        'quantity': 1,
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Listing created successfully!',
+            'Listing submitted for review. You will be notified after approval.',
             style: GoogleFonts.poppins(),
           ),
-          backgroundColor: const Color(0xFF10B981),
+          backgroundColor: const Color(0xFF4F46E5),
         ),
       );
       return true;
+    } on FirebaseFunctionsException catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message ?? 'Failed to create listing.',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return false;
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Failed to create listing: ' + e.toString(),
+            'Failed to create listing: ${e.toString()}',
             style: GoogleFonts.poppins(),
           ),
           backgroundColor: Colors.redAccent,
@@ -226,6 +345,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
             Tab(text: 'Buy'),
             Tab(text: 'Sell'),
             Tab(text: 'My Listings'),
+            if (_isAdmin) Tab(text: 'Review Queue'),
           ],
         ),
       ),
@@ -269,6 +389,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
                 _buildBuyTab(),
                 _buildSellTab(),
                 _buildMyListingsTab(),
+                if (_isAdmin) _buildReviewTab(),
               ],
             ),
           ),
@@ -539,7 +660,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
     );
   }
 
-  Widget _buildListingsGrid(List<MarketplaceListing> listings) {
+  Widget _buildListingsGrid(List<MarketplaceListing> listings,
+      {bool showStatus = false}) {
     return GridView.builder(
       padding: const EdgeInsets.all(20),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -551,38 +673,41 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
       itemCount: listings.length,
       itemBuilder: (context, index) {
         final listing = listings[index];
-        return _buildListingCard(listing);
+        return _buildListingCard(listing, showStatus: showStatus);
       },
     );
   }
 
-  Widget _buildListingCard(MarketplaceListing listing) {
+  Widget _buildListingCard(MarketplaceListing listing,
+      {bool showStatus = false}) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withOpacity(0.1),
-                Colors.white.withOpacity(0.05),
-              ],
-            ),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 1.5,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image placeholder
-              Container(
-                height: 120,
+      child: Stack(
+        children: [
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withOpacity(0.1),
+                    Colors.white.withOpacity(0.05),
+                  ],
+                ),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.2),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image placeholder
+                Container(
+                  height: 120,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -703,12 +828,71 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
                         ),
                       ],
                     ),
+                    if (showStatus && listing.isPending) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Submitted ${_formatRelativeTime(listing.submittedAt)}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: Colors.white60,
+                        ),
+                      ),
+                    ],
+                    if (showStatus && listing.reviewNotes != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        listing.isRejected
+                            ? 'Moderator notes: ${listing.reviewNotes}'
+                            : 'Notes: ${listing.reviewNotes}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: listing.isRejected
+                              ? Colors.redAccent
+                              : Colors.white60,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
         ),
+        if (showStatus && !listing.isActive)
+          Positioned(
+            top: 12,
+            left: 12,
+            child: _buildStatusChip(listing),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatusChip(MarketplaceListing listing) {
+    final color = listing.statusColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(listing.statusIcon, color: color, size: 12),
+          const SizedBox(width: 6),
+          Text(
+            listing.statusLabel,
+            style: GoogleFonts.poppins(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -756,6 +940,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Listings enter a moderation queue before they appear in the marketplace. Expect a review within a few hours.',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: Colors.white54,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: user == null ? _promptSignIn : _showCreateListingDialog,
@@ -798,7 +991,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
             hasListings
                 ? SizedBox(
                     height: 420,
-                    child: _buildListingsGrid(_myListings),
+                    child: _buildListingsGrid(_myListings, showStatus: true),
                   )
                 : _buildEmptyMyListingsMessage(),
           ],
@@ -860,7 +1053,429 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
       return Center(child: _buildEmptyMyListingsMessage());
     }
 
-    return _buildListingsGrid(_myListings);
+    return _buildListingsGrid(_myListings, showStatus: true);
+  }
+
+  Widget _buildReviewTab() {
+    if (!_isAdmin) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Moderator access required to review listings.',
+            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    if (_isLoading && _pendingListings.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white70),
+      );
+    }
+
+    if (_pendingListings.isEmpty) {
+      return _buildEmptyReviewState();
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(24),
+      itemCount: _pendingListings.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 16),
+      itemBuilder: (context, index) {
+        final listing = _pendingListings[index];
+        final isProcessing = _moderatingListingIds.contains(listing.id);
+        return _buildReviewCard(listing, isProcessing);
+      },
+    );
+  }
+
+  Widget _buildEmptyReviewState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.verified, color: Colors.white54, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              'No listings waiting for review',
+              style: GoogleFonts.cinzel(
+                color: Colors.white70,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'New submissions will appear here instantly for moderation.',
+              style: GoogleFonts.poppins(color: Colors.white54),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReviewCard(MarketplaceListing listing, bool isProcessing) {
+    final submittedLabel = _formatRelativeTime(listing.submittedAt);
+    final reviewNotes = listing.reviewNotes;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24),
+        color: Colors.white.withOpacity(0.06),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      listing.title,
+                      style: GoogleFonts.cinzel(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _currency.format(listing.price),
+                      style: GoogleFonts.poppins(
+                        color: const Color(0xFFFFD700),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildStatusChip(listing),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            listing.description.isNotEmpty
+                ? listing.description
+                : 'No description provided.',
+            style: GoogleFonts.poppins(color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _buildReviewMetaChip(Icons.person, listing.sellerName),
+              _buildReviewMetaChip(Icons.schedule, 'Submitted $submittedLabel'),
+              if (listing.category != null)
+                _buildReviewMetaChip(Icons.category, listing.category!),
+              if (listing.crystalId != null)
+                _buildReviewMetaChip(Icons.diamond, listing.crystalId!),
+            ],
+          ),
+          if (reviewNotes != null && reviewNotes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.redAccent, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      reviewNotes,
+                      style: GoogleFonts.poppins(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: isProcessing
+                      ? null
+                      : () => _moderateListing(listing, 'approve'),
+                  icon: isProcessing
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: Text(
+                    'Approve',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: isProcessing
+                      ? null
+                      : () async {
+                          final notes = await _promptRejectionReason(listing);
+                          if (notes == null) return;
+                          await _moderateListing(listing, 'reject', notes: notes);
+                        },
+                  icon: const Icon(Icons.block),
+                  label: Text(
+                    'Reject',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: BorderSide(
+                      color: Colors.redAccent.withOpacity(isProcessing ? 0.4 : 0.8),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewMetaChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white70, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _moderateListing(MarketplaceListing listing, String action,
+      {String? notes}) async {
+    if (!_isAdmin) {
+      _promptSignIn();
+      return;
+    }
+
+    if (_moderatingListingIds.contains(listing.id)) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _moderatingListingIds.add(listing.id);
+      });
+    } else {
+      _moderatingListingIds.add(listing.id);
+    }
+
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('reviewListing');
+      await callable.call({
+        'listingId': listing.id,
+        'action': action,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            action == 'approve'
+                ? 'Listing approved and published.'
+                : 'Listing rejected. The seller will receive the notes.',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor:
+              action == 'approve' ? const Color(0xFF10B981) : Colors.redAccent,
+        ),
+      );
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message ?? 'Failed to update listing moderation.',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to update listing: $error',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _moderatingListingIds.remove(listing.id);
+        });
+      } else {
+        _moderatingListingIds.remove(listing.id);
+      }
+    }
+  }
+
+  Future<String?> _promptRejectionReason(MarketplaceListing listing) async {
+    final controller = TextEditingController();
+    String? submittedNotes;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A0B2E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.white.withOpacity(0.2)),
+          ),
+          title: Text(
+            'Reject listing?',
+            style: GoogleFonts.cinzel(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Share optional notes that will be sent to the seller.',
+                style: GoogleFonts.poppins(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                maxLength: 500,
+                style: GoogleFonts.poppins(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Provide a short reason (optional)',
+                  hintStyle: GoogleFonts.poppins(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF20103F),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.redAccent),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.poppins(color: Colors.white70),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                submittedNotes = controller.text.trim();
+                Navigator.of(dialogContext).pop();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                'Reject listing',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+    return submittedNotes;
+  }
+
+  String _formatRelativeTime(DateTime? date) {
+    if (date == null) return 'recently';
+    final now = DateTime.now();
+    if (date.isAfter(now)) {
+      return DateFormat.yMMMd().format(date);
+    }
+    final difference = now.difference(date);
+    if (difference.inMinutes < 1) return 'just now';
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    }
+    if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    }
+    if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    }
+    return DateFormat.yMMMd().format(date);
   }
 
   Future<void> _showCreateListingDialog() async {
@@ -1201,6 +1816,13 @@ class MarketplaceListing {
     required this.rating,
     required this.createdAt,
     required this.updatedAt,
+    this.moderationStatus,
+    this.moderationNotes,
+    this.moderationSubmittedAt,
+    this.moderationReviewedAt,
+    this.moderationReviewerId,
+    this.activatedAt,
+    this.rejectionReason,
   });
 
   final String id;
@@ -1217,27 +1839,66 @@ class MarketplaceListing {
   final double rating;
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
+  final String? moderationStatus;
+  final String? moderationNotes;
+  final Timestamp? moderationSubmittedAt;
+  final Timestamp? moderationReviewedAt;
+  final String? moderationReviewerId;
+  final Timestamp? activatedAt;
+  final String? rejectionReason;
 
   factory MarketplaceListing.fromDocument(
       DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
+    return MarketplaceListing.fromMap(doc.id, data);
+  }
+
+  factory MarketplaceListing.fromMap(String id, Map<String, dynamic> data) {
     final rawTitle = (data['title'] as String?)?.trim();
     final rawDescription = (data['description'] as String?)?.trim();
-    final rawImage = (data['imageUrl'] as String?)?.trim();
+    final rawImage = ((data['imageUrl'] ?? data['imageURL']) as String?)?.trim();
+    final moderation = data['moderation'] is Map
+        ? Map<String, dynamic>.from(data['moderation'] as Map)
+        : null;
+
+    final moderationStatus = (moderation?['status'] as String?)?.trim();
+    final moderationNotes = (moderation?['notes'] as String?)?.trim();
+    final moderationSubmittedAt = moderation?['submittedAt'] is Timestamp
+        ? moderation?['submittedAt'] as Timestamp
+        : null;
+    final moderationReviewedAt = moderation?['reviewedAt'] is Timestamp
+        ? moderation?['reviewedAt'] as Timestamp
+        : null;
+    final moderationReviewerId = (moderation?['reviewerId'] as String?)?.trim();
+    final rejectionReason = (data['rejectionReason'] as String?)?.trim();
+
+    final priceCents = (() {
+      if (data['priceCents'] is num) {
+        return (data['priceCents'] as num).round();
+      }
+      if (data['price_cents'] is num) {
+        return (data['price_cents'] as num).round();
+      }
+      if (data['price'] is num) {
+        return ((data['price'] as num) * 100).round();
+      }
+      return 0;
+    })();
 
     return MarketplaceListing(
-      id: doc.id,
+      id: id,
       title: rawTitle?.isNotEmpty == true ? rawTitle! : 'Untitled listing',
-      description:
-          rawDescription?.isNotEmpty == true ? rawDescription! : '',
-      priceCents: (data['priceCents'] is num)
-          ? (data['priceCents'] as num).round()
-          : 0,
+      description: rawDescription?.isNotEmpty == true ? rawDescription! : '',
+      priceCents: priceCents,
       sellerId: (data['sellerId'] as String?) ?? '',
-      sellerName: (data['sellerName'] as String?)?.trim().isNotEmpty == true
-          ? (data['sellerName'] as String).trim()
-          : 'Crystal Seller',
-      status: (data['status'] as String?) ?? 'inactive',
+      sellerName: (() {
+        final rawName = (data['sellerName'] ?? data['sellerDisplayName']) as String?;
+        if (rawName != null && rawName.trim().isNotEmpty) {
+          return rawName.trim();
+        }
+        return 'Crystal Seller';
+      })(),
+      status: ((data['status'] as String?) ?? 'inactive').trim(),
       category: (data['category'] as String?)?.trim().isNotEmpty == true
           ? (data['category'] as String).trim()
           : null,
@@ -1251,6 +1912,15 @@ class MarketplaceListing {
           : 0,
       createdAt: data['createdAt'] as Timestamp?,
       updatedAt: data['updatedAt'] as Timestamp?,
+      moderationStatus: moderationStatus,
+      moderationNotes:
+          moderationNotes != null && moderationNotes.isNotEmpty ? moderationNotes : null,
+      moderationSubmittedAt: moderationSubmittedAt,
+      moderationReviewedAt: moderationReviewedAt,
+      moderationReviewerId: moderationReviewerId,
+      activatedAt: data['activatedAt'] as Timestamp?,
+      rejectionReason:
+          rejectionReason != null && rejectionReason.isNotEmpty ? rejectionReason : null,
     );
   }
 
@@ -1289,6 +1959,49 @@ class MarketplaceListing {
       default:
         return '💠';
     }
+  }
+
+  bool get isActive => status == 'active';
+  bool get isPending => status == 'pending_review';
+  bool get isRejected => status == 'rejected';
+  bool get isArchived => status == 'archived';
+
+  DateTime? get submittedAt =>
+      moderationSubmittedAt?.toDate() ?? createdAt?.toDate();
+  DateTime? get reviewedAt => moderationReviewedAt?.toDate();
+
+  String? get reviewNotes {
+    if (rejectionReason != null && rejectionReason!.isNotEmpty) {
+      return rejectionReason;
+    }
+    return moderationNotes;
+  }
+
+  String get statusLabel {
+    if (isPending) return 'Pending review';
+    if (isRejected) return 'Rejected';
+    if (isArchived) return 'Archived';
+    return 'Active';
+  }
+
+  Color get statusColor {
+    if (isPending) {
+      return const Color(0xFF6366F1);
+    }
+    if (isRejected) {
+      return const Color(0xFFEF4444);
+    }
+    if (isArchived) {
+      return Colors.white70;
+    }
+    return const Color(0xFF10B981);
+  }
+
+  IconData get statusIcon {
+    if (isPending) return Icons.hourglass_top;
+    if (isRejected) return Icons.block;
+    if (isArchived) return Icons.inventory_2_outlined;
+    return Icons.check_circle;
   }
 }
 

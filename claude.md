@@ -1,116 +1,28 @@
-# Crystal Grimoire – Claude Deployment Companion
+# Crystal Grimoire – Claude Launch Pad
 
-> **Read this file, `DEVELOPER_HANDOFF.me`, and `DEPLOYMENT_GUIDE.md` in full before making any code changes.** Keep detailed notes of everything you modify and update this document (and the handoff doc) when behavior or requirements shift.
+## 1. Read Me First
+- Start with `docs/APP_ASSESSMENT.md` for the authoritative audit of what works, what is missing, and known build blockers.
+- Use `docs/RELEASE_PLAN.md` to understand what is required for MVP, Beta, and Production readiness. Treat it as the up-to-date checklist for planning your slice.
+- Deployment/runtime specifics live in `DEPLOYMENT_GUIDE.md`; engineering history and context live in `DEVELOPER_HANDOFF.me`.
+- Ignore any legacy claims of "production ready"—the repository is **pre-MVP** until the tasks in the assessment and release plan are complete.
 
-## 1. Repository snapshot
-- **Primary platform:** Flutter Web with Firebase Auth/Firestore/Storage/Functions/Hosting.
-- **AI stack:** Google Gemini (vision + text) via Cloud Functions, optional OpenAI/Anthropic/Groq fallbacks wired through `EnvironmentConfig` + `ApiConfig`.
-- **Payments:** RevenueCat (mobile) and Stripe Checkout (web) orchestrated by `EnhancedPaymentService` and Cloud Functions (`createStripeCheckoutSession`, `finalizeStripeCheckoutSession`).
-- **Key services:**
-  - `AuthService` – boots via `initializeUserProfile` callable, manages SharedPreferences caches, delete-account callable, and plan snapshot sync.
-  - `CollectionServiceV2` – Firestore+local hybrid cache respecting SPEC‑1 collection rules (`libraryRef`, `notes`, `tags`, timestamps only).
-  - `AppState` – hydrates crystals, recent identifications, dream analytics, onboarding flags, and plan/settings caches.
-  - `EnhancedPaymentService` – unified purchase/restore flows, Stripe polling for web sessions, RevenueCat normalization for mobile.
+## 2. Restore-the-Build Checklist (MVP gate)
+1. Install Flutter 3.19+ and Node 20. Run `flutter pub get` and `npm install --prefix functions`.
+2. Configure Stripe publishable/secret keys and verify the Stripe-only `EnhancedPaymentService` compiles cleanly; ensure the `FirebaseExtensionsService` token getter remains in sync with `FirebaseService`.【F:lib/services/enhanced_payment_service.dart†L1-L320】【F:lib/services/firebase_extensions_service.dart†L34-L120】【F:lib/services/firebase_service.dart†L1-L120】
+3. Update `test/widget_test.dart` to bootstrap `CrystalGrimoireApp` so `flutter test` becomes a smoke test instead of a failure.【F:test/widget_test.dart†L12-L24】【F:lib/main.dart†L31-L59】
+4. Seed Firestore (at least `crystal_library`) and configure Functions secrets (`firebase functions:config:set gemini.api_key=... stripe.secret_key=...`). Verify your Firebase user has `email_verified == true` or use relaxed dev rules.【F:scripts/seed_database.js†L1-L80】【F:firestore.rules†L1-L120】
+5. Align the Functions runtime (Node 20 vs Node 22) before deploying; otherwise `firebase deploy` will fail.【F:functions/package.json†L1-L24】【F:firebase.json†L1-L33】
 
-## 2. Must-have environment configuration
-Provide these as `--dart-define` values (Flutter) and Firebase Functions runtime config before building or deploying.
+## 3. Known Gaps & Safe Defaults
+- Disable or hide UI that calls unimplemented Functions (`earnSeerCredits`, `generateHealingLayout`, `getMoonRituals`, compatibility/care) until the backend is written.【F:lib/services/crystal_service.dart†L165-L276】【F:lib/services/economy_service.dart†L1-L220】
+- Marketplace listings enter a `pending_review` queue via the callable Function; admins with the `role=admin` claim can approve/reject submissions from the in-app review tab, but payments remain stubbed and you must provision claims + moderation policy.【F:lib/screens/marketplace_screen.dart†L1-L1180】【F:functions/index.js†L1171-L1420】
+- Hosting currently serves `public/index.html`, not the Flutter build. When validating deployments, ensure the Flutter `build/web` output replaces it and remove the `/api/**` rewrite unless you ship an `api` function.【F:firebase.json†L7-L25】【F:public/index.html†L1-L160】
+- Firestore rules require strict schemas and verified emails; expect `permission-denied` without seeding proper documents.【F:firestore.rules†L1-L120】
 
-### Flutter/Dart defines
-| Key | Purpose |
-| --- | --- |
-| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID` | Firebase core bootstrap |
-| `FIREBASE_MEASUREMENT_ID` | Optional analytics (web) |
-| `GEMINI_API_KEY` | Primary AI provider key |
-| `OPENAI_API_KEY`, `CLAUDE_API_KEY`, `GROQ_API_KEY` | Optional fallback AI providers |
-| `AI_DEFAULT_PROVIDER` | `gemini`, `openai`, `claude`, `groq`, or `replicate` |
-| `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PREMIUM_PRICE_ID`, `STRIPE_PRO_PRICE_ID`, `STRIPE_FOUNDERS_PRICE_ID` | Web checkout |
-| `REVENUECAT_API_KEY` | Mobile purchases |
-| `TERMS_URL`, `PRIVACY_URL`, `SUPPORT_URL`, `SUPPORT_EMAIL` | Compliance/help surfaces |
-| `BACKEND_URL`, `USE_LOCAL_BACKEND` | Optional non-Firebase API routing |
-| `ADMOB_*` keys, `ADMOB_TEST_DEVICE_IDS` | AdMob (falls back to Google test IDs if omitted) |
-| `HOROSCOPE_API_KEY` | Optional external astrology provider |
+## 4. Working Rhythm for Agents
+- Pull one milestone from `docs/RELEASE_PLAN.md` at a time. MVP work should focus on restoring the auth → identify → collection loop and cleaning up hosting.
+- Document any schema changes, Functions updates, or rule tweaks in `DEVELOPER_HANDOFF.me` so the next agent inherits accurate information.
+- Before committing, run `flutter analyze`, the repaired `flutter test`, and any Functions checks relevant to your changes. Capture results in the PR.
+- If you touch security rules, Functions, or data shape, verify against the Firebase emulator or staging project before landing the change.
 
-### Firebase Functions runtime config
-```bash
-firebase functions:config:set \
-  stripe.secret_key=sk_live_xxx \
-  stripe.premium_price_id=price_123 \
-  stripe.pro_price_id=price_456 \
-  stripe.founders_price_id=price_789
-```
-Optional additional keys (configure with `firebase functions:config:set` or Secrets Manager):
-- `gemini.api_key`, `openai.api_key`, `anthropic.api_key`, `groq.api_key`
-- `astro.api_key` (external natal calculations)
-- `revenuecat.api_key` (if functions need RevenueCat webhooks)
-
-Run `firebase functions:config:get` before deploying to verify values.
-
-## 3. Firestore & Storage schema (SPEC‑1)
-- `users/{uid}` → `{ email, profile, settings, createdAt, updatedAt }`
-  - `profile` contains subscription metadata (`subscriptionTier`, `subscriptionWillRenew`, `effectiveLimits`, etc.).
-  - `settings` persists toggles from Settings screen.
-- `users/{uid}/collection/{entryId}` → `{ libraryRef, notes, tags, addedAt, createdAt?, updatedAt? }`
-- `users/{uid}/collectionLogs/{logId}` → `UsageLog.toJson()` (`collectionEntryId`, `purpose`, `dateTime`, etc.).
-- `users/{uid}/identifications/{id}` → `{ imagePath, candidates[], selected, createdAt, updatedAt, latencyMs?, model? }`
-- `users/{uid}/dreams/{id}` → `{ content, analysis, crystalSuggestions[], crystalsUsed[], dreamDate, createdAt, updatedAt, mood?, moonPhase? }`
-- `users/{uid}/guidance/{id}` → structured guidance output with safety flags.
-- `users/{uid}/economy/{doc}` → seer credit balances.
-- `users/{uid}/plan/active` → `{ plan, provider, priceId?, billingTier?, effectiveLimits, flags, willRenew, lifetime, updatedAt, expiresAt? }`
-- `usage/{uid_ymd}` → `{ identifyCount, guidanceCount, ... }`
-- `checkoutSessions/{sessionId}` → Stripe polling metadata.
-- `crystal_library/{slug}` → canonical crystal data (admin only writes).
-- Storage uploads: `/uploads/{uid}/{yyyy}/{MM}/{dd}/{uuid}.jpg` (image-only, owner read/write).
-
-Verify `firestore.rules` and `storage.rules` before deployment. Run `firebase emulators:exec --only firestore "npm run test:rules"` if rules tests are added.
-
-## 4. Build, test, and deploy checklist
-1. **Install tooling** (see `DEVELOPER_HANDOFF.me` → Flutter 3.22.2, Node 20, Firebase CLI).
-2. `flutter pub get`
-3. `dart run build_runner build --delete-conflicting-outputs` (when touching generated code).
-4. `flutter analyze` and `flutter test`
-5. `npm --prefix functions install`
-6. `npm --prefix functions run lint` and `npm --prefix functions test` (lint currently uses `eslint.config.js`).
-7. Configure Functions runtime config (section 2) and deploy:
-   ```bash
-   firebase deploy --only functions:identifyCrystal,functions:generateGuidance,functions:createStripeCheckoutSession,functions:finalizeStripeCheckoutSession,functions:initializeUserProfile,functions:deleteUserAccount
-   firebase deploy --only firestore:rules,firestore:indexes,hosting,storage
-   ```
-8. After deploy, smoke test:
-   - Sign-up + email verification → ensure profile bootstrap completes.
-   - Collection add/update/delete → verify Firestore documents match schema.
-   - Crystal identification → confirm `users/{uid}/identifications` updates.
-   - Dream journal entry with AI analysis.
-   - Web Stripe checkout round-trip (session creation, redirect, finalize).
-   - RevenueCat purchase/restore (mobile) if keys provided.
-
-Document findings in the PR and update usage counters/plan snapshots if manual tweaks were required.
-
-## 5. Key documents & where to look
-| File | Purpose |
-| --- | --- |
-| `DEVELOPER_HANDOFF.me` | Deep-dive on services, flows, troubleshooting |
-| `DEPLOYMENT_GUIDE.md` | Step-by-step hosting/functions deployment |
-| `PROJECT_STATUS.md` | High-level progress (update if scope changes) |
-| `lib/services/*` | Source of truth for client integrations |
-| `functions/index.js` | Cloud Functions (Stripe, AI, bootstrap, deletion) |
-| `firestore.rules` / `storage.rules` | Security posture |
-| `public/index.html` | Marketing/auth landing (ensure env config matches target project) |
-
-Always cross-reference these before editing any feature area.
-
-## 6. Outstanding work & follow-ups
-- Seed `crystal_library` with production-ready entries and imagery.
-- Complete guided camera capture pipeline (currently file upload-centric on web).
-- Integrate Seer Credits economy with UI spend/earn states and expose balances.
-- Build marketplace moderation/admin tooling (rules allow it; UI streams listings but lacks full seller verification flow).
-- Expand automated tests: widget tests for Settings/Subscription, integration tests for collection sync, and Jest coverage for Functions.
-- Evaluate analytics/observability (Firebase Analytics, Crashlytics for mobile builds, Stripe webhooks for subscription lifecycle).
-
-## 7. Collaboration etiquette
-- Work from feature branches; avoid force-pushing `work` after handoff.
-- Keep commits scoped and documented; reference Jira/Trello ticket IDs if applicable.
-- Run all checks listed above; do not skip lint/test without noting reason.
-- Update this file and `DEVELOPER_HANDOFF.me` when flows, environment requirements, or deployment steps change.
-- Record manual steps taken during testing so the next agent/dev can reproduce issues.
-
-Happy shipping! Reach out via PR comments or project chat if anything in this document is unclear or drifts from reality.
+Log discrepancies, new blockers, or follow-up tasks in `DEVELOPER_HANDOFF.me` to keep everyone aligned.

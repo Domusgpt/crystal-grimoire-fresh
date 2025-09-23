@@ -181,6 +181,7 @@ class CrystalService extends ChangeNotifier {
     required String moonPhase,
     required List<String> userCrystals,
     required Map<String, dynamic> userProfile,
+    String? intention,
   }) async {
     try {
       final callable = functions.httpsCallable('getMoonRituals');
@@ -188,8 +189,9 @@ class CrystalService extends ChangeNotifier {
         'moonPhase': moonPhase,
         'userCrystals': userCrystals,
         'userProfile': userProfile,
+        if (intention != null) 'intention': intention,
       });
-      
+
       return result.data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('Error getting moon rituals: $e');

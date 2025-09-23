@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import '../services/collection_service_v2.dart';
+import '../services/crystal_service.dart';
 import 'package:provider/provider.dart';
 
 class CrystalHealingScreen extends StatefulWidget {
@@ -21,6 +23,15 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
   
   String? selectedChakra;
   List<String> recommendedCrystals = [];
+
+  final TextEditingController _intentionController = TextEditingController();
+  final Set<String> _targetChakras = {};
+  Map<String, dynamic>? _layoutResult;
+  List<Map<String, dynamic>> _placements = [];
+  List<String> _suggestedCrystals = [];
+  bool _isGenerating = false;
+  String? _layoutError;
+  Set<String> _ownedCrystalNames = {};
   
   final Map<String, Map<String, dynamic>> chakraData = {
     'Crown': {
@@ -122,25 +133,150 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
   void dispose() {
     _chakraAnimationController.dispose();
     _pulseController.dispose();
+    _intentionController.dispose();
     super.dispose();
   }
 
   void _selectChakra(String chakra) {
+    final collectionService = context.read<CollectionServiceV2>();
+    final owned = collectionService.collection
+        .map((entry) => entry.crystal.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+
     setState(() {
       selectedChakra = chakra;
-      _updateRecommendedCrystals(chakra);
+      if (_targetChakras.isEmpty) {
+        _targetChakras.add(chakra);
+      }
+      _ownedCrystalNames = owned.map((name) => name.toLowerCase()).toSet();
+      _updateRecommendedCrystals(chakra, owned);
     });
   }
 
-  void _updateRecommendedCrystals(String chakra) {
+  void _toggleChakraTarget(String chakra) {
+    setState(() {
+      if (_targetChakras.contains(chakra)) {
+        _targetChakras.remove(chakra);
+      } else {
+        _targetChakras.add(chakra);
+      }
+      if (_targetChakras.isEmpty && selectedChakra != null) {
+        _targetChakras.add(selectedChakra!);
+      }
+    });
+  }
+
+  Future<void> _generateLayout() async {
+    final collectionService = context.read<CollectionServiceV2>();
+    final crystalService = context.read<CrystalService>();
+
+    final availableCrystals = collectionService.collection
+        .map((entry) => entry.crystal.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    if (availableCrystals.isEmpty) {
+      setState(() {
+        _layoutError = 'Add crystals to your collection to generate a layout.';
+        _layoutResult = null;
+        _placements = [];
+        _suggestedCrystals = [];
+      });
+      return;
+    }
+
+    final targetChakras = _targetChakras.isNotEmpty
+        ? _targetChakras.toList()
+        : (selectedChakra != null ? [selectedChakra!] : ['Full Alignment']);
+
+    final normalizedOwned = availableCrystals
+        .map((name) => name.toLowerCase())
+        .toSet();
+
+    setState(() {
+      _isGenerating = true;
+      _layoutError = null;
+      _ownedCrystalNames = normalizedOwned;
+    });
+
+    try {
+      final result = await crystalService.generateHealingLayout(
+        availableCrystals: availableCrystals.toList(),
+        targetChakras: targetChakras,
+        intention: _intentionController.text.trim().isEmpty
+            ? null
+            : _intentionController.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      if (result == null || result['layout'] == null) {
+        throw Exception('No layout returned');
+      }
+
+      final layout = Map<String, dynamic>.from(result['layout'] as Map);
+      final placementData = (layout['placements'] as List?)
+              ?.whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList() ??
+          <Map<String, dynamic>>[];
+      final suggested = (result['suggestedCrystals'] as List?)
+              ?.whereType<String>()
+              .toList() ??
+          <String>[];
+
+      setState(() {
+        _layoutResult = layout;
+        _placements = placementData;
+        _suggestedCrystals = suggested;
+        _layoutError = null;
+      });
+    } catch (error, stack) {
+      debugPrint('generateHealingLayout failed: $error');
+      debugPrint('$stack');
+      if (!mounted) return;
+      setState(() {
+        _layoutError = 'Unable to generate a layout right now. Try again later.';
+        _layoutResult = null;
+        _placements = [];
+        _suggestedCrystals = [];
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+        });
+      }
+    }
+  }
+
+  void _updateRecommendedCrystals(String chakra,
+      [List<String>? ownedNamesOverride]) {
     final collectionService = context.read<CollectionServiceV2>();
     final chakraCrystals = chakraData[chakra]!['crystals'] as List<String>;
-    
-    // Filter to show only crystals the user owns
+
+    final ownedNames = ownedNamesOverride ??
+        collectionService.collection
+            .map((entry) => entry.crystal.name.trim())
+            .where((name) => name.isNotEmpty)
+            .toList();
+
     recommendedCrystals = collectionService.collection
         .where((entry) => chakraCrystals.contains(entry.crystal.name))
         .map((entry) => entry.crystal.name)
         .toList();
+
+    if (recommendedCrystals.isEmpty) {
+      final lowerLookup = chakraCrystals
+          .map((crystal) => crystal.toLowerCase())
+          .toSet();
+      recommendedCrystals = ownedNames
+          .where((name) => lowerLookup.contains(name.toLowerCase()))
+          .toList();
+    }
+
+    _ownedCrystalNames = ownedNames.map((name) => name.toLowerCase()).toSet();
   }
 
   @override
@@ -506,58 +642,14 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
           
           // Recommended crystals from collection
           _buildRecommendedCrystals(chakraCrystals),
-          
+
           const SizedBox(height: 24),
-          
-          // Start healing session button
-          Container(
-            width: double.infinity,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  data['color'] as Color,
-                  (data['color'] as Color).withOpacity(0.7),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: (data['color'] as Color).withOpacity(0.3),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _startHealingSession,
-                borderRadius: BorderRadius.circular(16),
-                child: Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Start Healing Session',
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
+
+          _buildLayoutControls(data),
+
+          const SizedBox(height: 24),
+
+          _buildLayoutResults(),
         ],
       ),
     );
@@ -588,8 +680,11 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
           itemCount: chakraCrystals.length,
           itemBuilder: (context, index) {
             final crystal = chakraCrystals[index];
-            final isOwned = recommendedCrystals.contains(crystal);
-            
+            final isOwned =
+                _ownedCrystalNames.contains(crystal.toLowerCase());
+            final accentColor =
+                isOwned ? const Color(0xFF10B981) : const Color(0xFFF59E0B);
+
             return ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: BackdropFilter(
@@ -601,14 +696,16 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Colors.white.withOpacity(0.1),
-                        Colors.white.withOpacity(0.05),
+                        isOwned
+                            ? Colors.white.withOpacity(0.12)
+                            : Colors.white.withOpacity(0.05),
+                        isOwned
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.white.withOpacity(0.02),
                       ],
                     ),
                     border: Border.all(
-                      color: isOwned 
-                          ? const Color(0xFF10B981).withOpacity(0.5)
-                          : Colors.white.withOpacity(0.2),
+                      color: accentColor.withOpacity(isOwned ? 0.5 : 0.4),
                       width: 1.5,
                     ),
                   ),
@@ -618,9 +715,7 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
                     children: [
                       Icon(
                         Icons.diamond,
-                        color: isOwned 
-                            ? const Color(0xFF10B981) 
-                            : Colors.white60,
+                        color: isOwned ? accentColor : Colors.white60,
                         size: 24,
                       ),
                       const SizedBox(height: 8),
@@ -633,24 +728,23 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      if (isOwned) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'In Collection',
-                            style: GoogleFonts.poppins(
-                              fontSize: 10,
-                              color: const Color(0xFF10B981),
-                              fontWeight: FontWeight.w600,
-                            ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: accentColor.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          isOwned ? 'In Collection' : 'Not in collection',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            color: accentColor,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
@@ -683,70 +777,552 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
     );
   }
 
-  void _startHealingSession() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A0B2E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-            color: Colors.white.withOpacity(0.2),
-            width: 1.5,
+  Widget _buildLayoutControls(Map<String, dynamic> chakraInfo) {
+    final color = chakraInfo['color'] as Color? ?? const Color(0xFF8B5CF6);
+    final activeTargets = _targetChakras.isNotEmpty
+        ? _targetChakras
+        : {if (selectedChakra != null) selectedChakra!};
+    final lackingTargets = activeTargets.where((chakra) {
+      final crystals = chakraData[chakra]?['crystals'] as List<String>?;
+      if (crystals == null || crystals.isEmpty) {
+        return false;
+      }
+      return !crystals.any(
+        (name) => _ownedCrystalNames.contains(name.toLowerCase()),
+      );
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Healing Intention',
+          style: GoogleFonts.cinzel(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: (chakraData[selectedChakra]!['color'] as Color),
-                boxShadow: [
-                  BoxShadow(
-                    color: (chakraData[selectedChakra]!['color'] as Color).withOpacity(0.6),
-                    blurRadius: 30,
-                    spreadRadius: 10,
-                  ),
-                ],
+        if (lackingTargets.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildCoverageWarning(lackingTargets),
+        ],
+        const SizedBox(height: 12),
+        TextField(
+          controller: _intentionController,
+          style: GoogleFonts.poppins(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'e.g. Grounding anxiety before sleep',
+            hintStyle: GoogleFonts.poppins(color: Colors.white54),
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.05),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: color.withOpacity(0.8)),
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _generateLayout(),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'Target Chakras',
+          style: GoogleFonts.cinzel(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: chakraData.keys.map((chakra) {
+            final isSelected = _targetChakras.contains(chakra);
+            final chakraColor = chakraData[chakra]!['color'] as Color;
+            return FilterChip(
+              selected: isSelected,
+              onSelected: (_) => _toggleChakraTarget(chakra),
+              label: Text(
+                chakra,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              child: const Icon(
-                Icons.healing,
-                color: Colors.white,
-                size: 50,
+              showCheckmark: false,
+              selectedColor: chakraColor.withOpacity(0.35),
+              backgroundColor: Colors.white.withOpacity(0.05),
+              side: BorderSide(
+                color: isSelected
+                    ? chakraColor.withOpacity(0.6)
+                    : Colors.white24,
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isGenerating ? null : _generateLayout,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color.withOpacity(0.85),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Healing Session Started',
-              style: GoogleFonts.cinzel(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Place your ${recommendedCrystals.isNotEmpty ? recommendedCrystals.first : "healing crystal"} on your $selectedChakra area and breathe deeply.',
+            icon: _isGenerating
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                : const Icon(Icons.auto_awesome),
+            label: Text(
+              _isGenerating
+                  ? 'Generating layout...'
+                  : 'Generate Healing Layout',
               style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
-              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+        if (_layoutError != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.redAccent.withOpacity(0.4),
+              ),
+            ),
+            child: Text(
+              _layoutError!,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLayoutResults() {
+    if (_layoutResult == null &&
+        _placements.isEmpty &&
+        _suggestedCrystals.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final layout = _layoutResult;
+    final intention = layout?['intention']?.toString();
+    final duration = layout?['durationMinutes'];
+    final affirmation = layout?['affirmation']?.toString();
+    final breathwork = layout?['breathwork'] is Map
+        ? Map<String, dynamic>.from(layout!['breathwork'] as Map)
+        : null;
+    final integration = (layout?['integration'] as List?)
+            ?.whereType<String>()
+            .toList() ??
+        <String>[];
+
+    final sections = <Widget>[];
+
+    if (_placements.isNotEmpty) {
+      sections.add(
+        _buildGlassSection(
+          title: 'Crystal Placements',
+          icon: Icons.healing,
+          children: [
+            if (intention != null && intention.isNotEmpty)
+              _buildLayoutMetaRow('Intention', intention),
+            if (duration is num)
+              _buildLayoutMetaRow(
+                'Estimated duration',
+                '${duration.round()} minutes',
+              ),
+            if ((intention?.isNotEmpty ?? false) || duration is num)
+              const SizedBox(height: 12),
+            ..._placements
+                .asMap()
+                .entries
+                .map((entry) => _buildPlacementTile(entry.key, entry.value)),
+          ],
+        ),
+      );
+    }
+
+    if (_suggestedCrystals.isNotEmpty) {
+      sections.add(
+        _buildGlassSection(
+          title: 'Additional Allies',
+          icon: Icons.local_florist,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _suggestedCrystals.map((name) {
+                final isOwned =
+                    _ownedCrystalNames.contains(name.toLowerCase());
+                final chipColor = isOwned
+                    ? Colors.white.withOpacity(0.08)
+                    : const Color(0xFFF59E0B).withOpacity(0.18);
+                final borderColor =
+                    isOwned ? Colors.white24 : const Color(0xFFF59E0B);
+                final icon =
+                    isOwned ? Icons.check_circle : Icons.add_circle_outline;
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: chipColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        icon,
+                        size: 14,
+                        color: isOwned
+                            ? Colors.white70
+                            : const Color(0xFFF59E0B),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        name,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Complete',
+      );
+    }
+
+    if (breathwork != null) {
+      sections.add(
+        _buildGlassSection(
+          title: 'Breathwork',
+          icon: Icons.self_improvement,
+          children: [
+            if (breathwork['technique'] != null)
+              Text(
+                breathwork['technique'].toString(),
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            if (breathwork['description'] != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                breathwork['description'].toString(),
+                style: GoogleFonts.poppins(
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    if (integration.isNotEmpty) {
+      sections.add(
+        _buildGlassSection(
+          title: 'Integration',
+          icon: Icons.bubble_chart,
+          children: integration
+              .map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.north_east,
+                          color: Colors.white60, size: 14),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          item,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white70,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      );
+    }
+
+    if (affirmation != null && affirmation.isNotEmpty) {
+      sections.add(
+        _buildGlassSection(
+          title: 'Affirmation',
+          icon: Icons.auto_awesome,
+          children: [
+            Text(
+              affirmation,
               style: GoogleFonts.poppins(
-                color: chakraData[selectedChakra]!['color'] as Color,
-                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                fontStyle: FontStyle.italic,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (sections.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Session Blueprint',
+          style: GoogleFonts.cinzel(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ...sections.map((section) => Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: section,
+            )),
+      ],
+    );
+  }
+
+  Widget _buildGlassSection({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.15),
+                Colors.white.withOpacity(0.05),
+              ],
+            ),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, color: Colors.white70),
+                    const SizedBox(width: 12),
+                  ],
+                  Text(
+                    title,
+                    style: GoogleFonts.cinzel(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ...children,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLayoutMetaRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label: ',
+            style: GoogleFonts.poppins(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlacementTile(int index, Map<String, dynamic> placement) {
+    final chakra = placement['chakra']?.toString() ?? 'Chakra';
+    final crystal = placement['crystal']?.toString() ?? 'Crystal';
+    final instructions = placement['instructions']?.toString() ?? '';
+    final focus = (placement['focus'] as List?)
+            ?.whereType<String>()
+            .toList() ??
+        <String>[];
+    final color = chakraData[chakra]?['color'] as Color? ?? Colors.white70;
+    final isOwned = _ownedCrystalNames.contains(crystal.toLowerCase());
+    final accentColor = isOwned ? color : const Color(0xFFF59E0B);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: accentColor.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: accentColor.withOpacity(isOwned ? 0.35 : 0.6),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${index + 1}. $chakra Alignment',
+            style: GoogleFonts.cinzel(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            crystal,
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (!isOwned) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withOpacity(0.25),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'Not in your collection yet',
+                style: GoogleFonts.poppins(
+                  color: const Color(0xFFF59E0B),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+          if (focus.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              focus.join(' • '),
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          if (instructions.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              instructions,
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                height: 1.4,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoverageWarning(List<String> lackingTargets) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF97316).withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF97316).withOpacity(0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, color: Color(0xFFF59E0B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'You don\'t have crystals aligned with ${lackingTargets.join(', ')} yet. Add allies for those chakras to unlock the full layout guidance.',
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 12,
+                height: 1.4,
               ),
             ),
           ),

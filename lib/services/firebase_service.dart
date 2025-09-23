@@ -22,6 +22,7 @@ class FirebaseService extends ChangeNotifier {
   String? get currentUserId => _currentUserId;
   UserProfile? get currentUser => _currentUser;
   UserProfile? get currentUserProfile => _currentUser; // Added for compatibility
+  String? get currentUserToken => _currentUserToken;
   bool get isConfigured => _config.firebaseApiKey.isNotEmpty;
   
   /// Firebase REST API endpoints
