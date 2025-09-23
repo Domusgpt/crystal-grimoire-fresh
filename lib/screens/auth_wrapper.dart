@@ -2,37 +2,47 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../services/app_service.dart';
+import '../services/app_state.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/home_screen.dart';
+import 'onboarding_screen.dart';
 
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AppService>(
-      builder: (context, appService, child) {
-        // Show loading while checking auth state
+    return Consumer2<AppService, AppState>(
+      builder: (context, appService, appState, child) {
+        // Show loading while checking auth state or onboarding state
         if (!appService.isInitialized) {
           return const _LoadingScreen();
         }
-        
-        // Show error if there's a critical error
+
         if (appService.lastError != null) {
           return _ErrorScreen(error: appService.lastError!);
         }
-        
+
+        if (appState.isLoading) {
+          return _LoadingScreen(message: appState.loadingMessage);
+        }
+
+        if (appState.errorMessage != null) {
+          return _ErrorScreen(error: appState.errorMessage!);
+        }
+
         // Use Firebase Auth stream to determine which screen to show
         return StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, snapshot) {
-            // Show loading while auth state is loading
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const _LoadingScreen();
             }
-            
-            // Show appropriate screen based on auth state
+
             if (snapshot.hasData && snapshot.data != null) {
+              if (!appState.hasSeenOnboarding) {
+                return const OnboardingScreen();
+              }
               return const HomeScreen();
             } else {
               return const LoginScreen();
@@ -45,7 +55,9 @@ class AuthWrapper extends StatelessWidget {
 }
 
 class _LoadingScreen extends StatelessWidget {
-  const _LoadingScreen();
+  final String message;
+
+  const _LoadingScreen({this.message = 'Checking authentication...'});
 
   @override
   Widget build(BuildContext context) {
@@ -64,17 +76,18 @@ class _LoadingScreen extends StatelessWidget {
             ],
           ),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(
+            const CircularProgressIndicator(
               color: Color(0xFF7209B7),
               strokeWidth: 3,
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             Text(
-              'Checking authentication...',
-              style: TextStyle(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.white70,
               ),
