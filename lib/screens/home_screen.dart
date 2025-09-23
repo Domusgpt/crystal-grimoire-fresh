@@ -17,6 +17,7 @@ import 'marketplace_screen.dart';
 import 'profile_screen.dart';
 import 'notification_screen.dart';
 import 'help_screen.dart';
+import 'crystal_compatibility_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -75,6 +76,38 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  List<String> _resolveDailyProperties(Map<String, dynamic>? data) {
+    if (data == null) {
+      return const [];
+    }
+
+    final seen = <String>{};
+    final result = <String>[];
+
+    void addAll(dynamic source) {
+      if (source is Iterable) {
+        for (final item in source) {
+          final text = item == null ? '' : item.toString().trim();
+          if (text.isEmpty) continue;
+          final key = text.toLowerCase();
+          if (seen.add(key)) {
+            result.add(text);
+            if (result.length >= 6) {
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    addAll(data['properties']);
+    if (result.length < 6) addAll(data['healingProperties']);
+    if (result.length < 6) addAll(data['intents']);
+    if (result.length < 6) addAll(data['keywords']);
+
+    return result;
   }
 
   @override
@@ -208,6 +241,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       _buildFeatureCard(
+                        title: 'Compatibility',
+                        icon: Icons.auto_awesome,
+                        gradientColors: [AppTheme.holoPink, AppTheme.holoBlue],
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const CrystalCompatibilityScreen()),
+                        ),
+                      ),
+                      _buildFeatureCard(
                         title: 'Dream Journal',
                         icon: Icons.auto_stories,
                         gradientColors: [AppTheme.holoPink, AppTheme.amethystPurple],
@@ -250,6 +292,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
   
   Widget _buildCrystalOfTheDay() {
+    final properties =
+        _isLoading ? const <String>[] : _resolveDailyProperties(_dailyCrystal);
     return GlassmorphicContainer(
       borderRadius: 25,
       blur: 20,
@@ -315,29 +359,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 height: 1.4,
               ),
             ),
-            if (!_isLoading && _dailyCrystal?['properties'] != null) ...[
+            if (properties.isNotEmpty) ...[
               const SizedBox(height: 15),
               Wrap(
                 spacing: 8,
                 runSpacing: 5,
                 alignment: WrapAlignment.center,
-                children: (_dailyCrystal!['properties'] as List).map<Widget>((property) =>
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      color: AppTheme.cosmicPurple.withOpacity(0.3),
-                      border: Border.all(color: AppTheme.cosmicPurple.withOpacity(0.5)),
-                    ),
-                    child: Text(
-                      property.toString(),
-                      style: const TextStyle(
-                        color: AppTheme.crystalGlow,
-                        fontSize: 12,
+                children: properties
+                    .map(
+                      (property) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(15),
+                          color: AppTheme.cosmicPurple.withOpacity(0.3),
+                          border:
+                              Border.all(color: AppTheme.cosmicPurple.withOpacity(0.5)),
+                        ),
+                        child: Text(
+                          property,
+                          style: const TextStyle(
+                            color: AppTheme.crystalGlow,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ).toList(),
+                    )
+                    .toList(),
               ),
             ],
           ],

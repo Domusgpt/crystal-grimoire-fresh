@@ -175,7 +175,80 @@ class CrystalService extends ChangeNotifier {
       return null;
     }
   }
-  
+
+  List<String> _coerceStringList(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item == null ? '' : item.toString())
+          .map((text) => text.trim())
+          .where((text) => text.isNotEmpty)
+          .toList();
+    }
+    return const [];
+  }
+
+  List<String> _extractDailyProperties(Map<String, dynamic> data) {
+    final seen = <String>{};
+    final collected = <String>[];
+
+    void addAll(List<String> values) {
+      for (final value in values) {
+        final lower = value.toLowerCase();
+        if (seen.add(lower)) {
+          collected.add(value);
+        }
+      }
+    }
+
+    final candidates = <List<String>>[
+      _coerceStringList(data['properties']),
+      _coerceStringList(data['healingProperties']),
+      _coerceStringList(data['intents']),
+      _coerceStringList(data['keywords']),
+    ];
+
+    for (final list in candidates) {
+      if (list.isEmpty) continue;
+      addAll(list);
+    }
+
+    if (collected.length > 6) {
+      return collected.sublist(0, 6);
+    }
+
+    return collected;
+  }
+
+  String? _deriveDailyDescription(
+    Map<String, dynamic> data,
+    List<String> properties,
+  ) {
+    final rawName = data['name'];
+    final name = rawName is String ? rawName.trim() : '';
+    if (name.isEmpty) {
+      return null;
+    }
+
+    if (properties.isNotEmpty) {
+      final focus = properties.take(3).join(', ');
+      return '$name supports $focus energy today.';
+    }
+
+    final selection = data['selectionCriteria'];
+    if (selection is Map) {
+      final intent = selection['intent'];
+      if (intent is String && intent.trim().isNotEmpty) {
+        return '$name is tuned to your focus on ${intent.trim()}.';
+      }
+      final mood = selection['mood'];
+      if (mood is String && mood.trim().isNotEmpty) {
+        return 'Lean on $name to balance feelings of ${mood.trim()}.';
+      }
+    }
+
+    return 'Spend time with $name to attune to its frequency today.';
+  }
+
   // Get moon ritual recommendations
   Future<Map<String, dynamic>?> getMoonRituals({
     required String moonPhase,
@@ -203,14 +276,25 @@ class CrystalService extends ChangeNotifier {
   Future<Map<String, dynamic>?> checkCompatibility({
     required List<String> crystalNames,
     String? purpose,
+    Map<String, dynamic>? userProfile,
   }) async {
     try {
       final callable = functions.httpsCallable('checkCrystalCompatibility');
-      final result = await callable.call({
+      final payload = <String, dynamic>{
         'crystalNames': crystalNames,
-        'purpose': purpose,
-      });
-      
+      };
+
+      final trimmedPurpose = purpose?.trim();
+      if (trimmedPurpose != null && trimmedPurpose.isNotEmpty) {
+        payload['purpose'] = trimmedPurpose;
+      }
+
+      if (userProfile != null && userProfile.isNotEmpty) {
+        payload['userProfile'] = userProfile;
+      }
+
+      final result = await callable.call(payload);
+
       return result.data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('Error checking compatibility: $e');
@@ -238,8 +322,28 @@ class CrystalService extends ChangeNotifier {
     try {
       final callable = functions.httpsCallable('getDailyCrystal');
       final result = await callable.call();
-      
-      return result.data as Map<String, dynamic>;
+      final rawData = result.data;
+      if (rawData is Map) {
+        final data = rawData.map((key, value) => MapEntry(key.toString(), value));
+        final properties = _extractDailyProperties(data);
+        if (properties.isNotEmpty) {
+          data['properties'] = properties;
+        } else {
+          data.remove('properties');
+        }
+
+        final description = data['description'];
+        if (description is! String || description.trim().isEmpty) {
+          final fallbackDescription = _deriveDailyDescription(data, properties);
+          if (fallbackDescription != null) {
+            data['description'] = fallbackDescription;
+          }
+        }
+
+        return data;
+      }
+
+      return null;
     } catch (e) {
       debugPrint('Error getting daily crystal: $e');
       // Return a fallback crystal with real properties
@@ -247,6 +351,8 @@ class CrystalService extends ChangeNotifier {
         'name': 'Clear Quartz',
         'description': 'The master healer crystal that amplifies energy and intentions. Known as the most versatile healing stone, Clear Quartz can be programmed with any intention and works harmoniously with all other crystals.',
         'properties': ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
+        'healingProperties': ['Amplifies energy', 'Promotes clarity', 'Enhances spiritual growth'],
+        'intents': ['Amplification', 'Clarity', 'Protection'],
         'metaphysical_properties': {
           'healing_properties': ['Amplifies energy', 'Promotes clarity', 'Enhances spiritual growth'],
           'primary_chakras': ['Crown', 'All Chakras'],
@@ -269,8 +375,7 @@ class CrystalService extends ChangeNotifier {
     String? color,
   }) async {
     try {
-      final callable = _functions?.httpsCallable('searchCrystals');
-      if (callable == null) return [];
+      final callable = functions.httpsCallable('searchCrystals');
       final result = await callable.call({
         'chakra': chakra,
         'zodiacSign': zodiacSign,
@@ -278,23 +383,51 @@ class CrystalService extends ChangeNotifier {
         'element': element,
         'color': color,
       });
-      
-      final crystals = result.data['crystals'] as List<dynamic>;
-      
-      return crystals.map((data) => Crystal(
-        id: data['id'] ?? '',
-        name: data['name'] ?? '',
-        scientificName: data['scientificName'] ?? '',
-        imageUrl: data['imageUrl'] ?? '',
-        metaphysicalProperties: data['metaphysicalProperties'] ?? {},
-        physicalProperties: data['physicalProperties'] ?? {},
-        careInstructions: data['careInstructions'] ?? {},
-        healingProperties: List<String>.from(data['healingProperties'] ?? []),
-        chakras: List<String>.from(data['chakras'] ?? []),
-        zodiacSigns: List<String>.from(data['zodiacSigns'] ?? []),
-        elements: List<String>.from(data['elements'] ?? []),
-        description: data['description'] ?? '',
-      )).toList();
+
+      final payload = result.data;
+      final List<dynamic> crystals;
+      if (payload is Map && payload['results'] is List) {
+        crystals = List<dynamic>.from(payload['results'] as List);
+      } else if (payload is List) {
+        crystals = List<dynamic>.from(payload);
+      } else {
+        return const [];
+      }
+
+      return crystals.map((raw) {
+        final data = raw is Map
+            ? raw.map((key, value) => MapEntry(key.toString(), value))
+            : <String, dynamic>{};
+        return Crystal(
+          id: data['id']?.toString() ?? '',
+          name: data['name']?.toString() ?? '',
+          scientificName: data['scientificName']?.toString() ?? '',
+          imageUrl: data['imageUrl']?.toString() ?? '',
+          metaphysicalProperties:
+              data['metaphysicalProperties'] is Map
+                  ? Map<String, dynamic>.from(data['metaphysicalProperties'] as Map)
+                  : <String, dynamic>{},
+          physicalProperties: data['physicalProperties'] is Map
+              ? Map<String, dynamic>.from(data['physicalProperties'] as Map)
+              : <String, dynamic>{},
+          careInstructions: data['careInstructions'] is Map
+              ? Map<String, dynamic>.from(data['careInstructions'] as Map)
+              : <String, dynamic>{},
+          healingProperties: List<String>.from(
+            _coerceStringList(data['healingProperties']),
+          ),
+          chakras: List<String>.from(
+            _coerceStringList(data['chakras']),
+          ),
+          zodiacSigns: List<String>.from(
+            _coerceStringList(data['zodiacSigns']),
+          ),
+          elements: List<String>.from(
+            _coerceStringList(data['elements']),
+          ),
+          description: data['description']?.toString() ?? '',
+        );
+      }).toList();
     } catch (e) {
       debugPrint('Error searching crystals: $e');
       return null;
