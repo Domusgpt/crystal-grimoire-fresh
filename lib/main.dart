@@ -13,6 +13,9 @@ import 'screens/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/notification_screen.dart';
+import 'screens/help_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 
@@ -40,7 +43,9 @@ class CrystalGrimoireApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: AppService.instance),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => CrystalService()),
-        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider(
+          create: (_) => AppState()..initialize(),
+        ),
         ChangeNotifierProvider(create: (_) => EconomyService()),
         ChangeNotifierProvider(
           create: (_) {
@@ -54,13 +59,17 @@ class CrystalGrimoireApp extends StatelessWidget {
         title: 'Crystal Grimoire',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: const AuthWrapper(),
+        home: const SplashScreen(),
         routes: {
+          '/splash': (context) => const SplashScreen(),
           '/auth-check': (context) => const AuthWrapper(),
           '/login': (context) => const LoginScreen(),
           '/home': (context) => const HomeScreen(),
           '/settings': (context) => const SettingsScreen(),
           '/subscription': (context) => const SubscriptionScreen(),
+          '/onboarding': (context) => const OnboardingScreen(),
+          '/notifications': (context) => const NotificationScreen(),
+          '/help': (context) => const HelpScreen(),
         },
       ),
     );

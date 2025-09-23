@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:ui';
-import 'dart:math' as math;
-import '../services/collection_service_v2.dart';
 import 'package:provider/provider.dart';
+
+import '../services/collection_service_v2.dart';
+import '../services/crystal_service.dart';
 
 class CrystalHealingScreen extends StatefulWidget {
   const CrystalHealingScreen({Key? key}) : super(key: key);
@@ -12,79 +15,62 @@ class CrystalHealingScreen extends StatefulWidget {
   State<CrystalHealingScreen> createState() => _CrystalHealingScreenState();
 }
 
-class _CrystalHealingScreenState extends State<CrystalHealingScreen> 
+class _CrystalHealingScreenState extends State<CrystalHealingScreen>
     with TickerProviderStateMixin {
   late AnimationController _chakraAnimationController;
   late AnimationController _pulseController;
   late Animation<double> _chakraAnimation;
   late Animation<double> _pulseAnimation;
-  
+
   String? selectedChakra;
-  List<String> recommendedCrystals = [];
-  
+  bool _isLoading = true;
+  String? _errorMessage;
+  Map<String, dynamic>? _layout;
+  List<Map<String, dynamic>> _placements = [];
+  List<String> _suggestedCrystals = [];
+
   final Map<String, Map<String, dynamic>> chakraData = {
     'Crown': {
       'color': const Color(0xFF9B59B6),
       'location': 'Top of head',
       'element': 'Thought',
-      'crystals': ['Clear Quartz', 'Amethyst', 'Selenite', 'Lepidolite'],
       'affirmation': 'I am connected to divine wisdom',
-      'frequency': '963 Hz',
-      'position': 0.1,
     },
     'Third Eye': {
       'color': const Color(0xFF3498DB),
       'location': 'Between eyebrows',
       'element': 'Light',
-      'crystals': ['Lapis Lazuli', 'Sodalite', 'Fluorite', 'Labradorite'],
       'affirmation': 'I trust my intuition',
-      'frequency': '852 Hz',
-      'position': 0.2,
     },
     'Throat': {
       'color': const Color(0xFF5DADE2),
       'location': 'Throat',
       'element': 'Sound',
-      'crystals': ['Blue Lace Agate', 'Aquamarine', 'Turquoise', 'Celestite'],
       'affirmation': 'I speak my truth with clarity',
-      'frequency': '741 Hz',
-      'position': 0.35,
     },
     'Heart': {
       'color': const Color(0xFF27AE60),
       'location': 'Center of chest',
       'element': 'Air',
-      'crystals': ['Rose Quartz', 'Green Aventurine', 'Rhodonite', 'Malachite'],
       'affirmation': 'I give and receive love freely',
-      'frequency': '639 Hz',
-      'position': 0.5,
     },
     'Solar Plexus': {
       'color': const Color(0xFFF39C12),
       'location': 'Above navel',
       'element': 'Fire',
-      'crystals': ['Citrine', 'Yellow Jasper', 'Tiger Eye', 'Pyrite'],
       'affirmation': 'I am confident and empowered',
-      'frequency': '528 Hz',
-      'position': 0.65,
     },
     'Sacral': {
       'color': const Color(0xFFE67E22),
       'location': 'Below navel',
       'element': 'Water',
-      'crystals': ['Carnelian', 'Orange Calcite', 'Sunstone', 'Moonstone'],
       'affirmation': 'I embrace pleasure and creativity',
-      'frequency': '417 Hz',
-      'position': 0.8,
     },
     'Root': {
       'color': const Color(0xFFE74C3C),
       'location': 'Base of spine',
       'element': 'Earth',
-      'crystals': ['Red Jasper', 'Black Tourmaline', 'Hematite', 'Smoky Quartz'],
       'affirmation': 'I am grounded and secure',
-      'frequency': '396 Hz',
-      'position': 0.9,
     },
   };
 
@@ -95,12 +81,12 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
       duration: const Duration(seconds: 4),
       vsync: this,
     )..repeat(reverse: true);
-    
+
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
-    
+
     _chakraAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -108,7 +94,7 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
       parent: _chakraAnimationController,
       curve: Curves.easeInOut,
     ));
-    
+
     _pulseAnimation = Tween<double>(
       begin: 0.8,
       end: 1.2,
@@ -116,6 +102,8 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _generateLayout());
   }
 
   @override
@@ -125,26 +113,82 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
     super.dispose();
   }
 
-  void _selectChakra(String chakra) {
+  Future<void> _generateLayout({List<String>? targetChakras, String? intention}) async {
+    final collectionService = context.read<CollectionServiceV2>();
+    if (!collectionService.isLoaded) {
+      await collectionService.initialize();
+    }
+
+    final availableCrystals = collectionService.collection
+        .map((entry) => entry.crystal.name)
+        .where((name) => name.isNotEmpty)
+        .toList();
+
     setState(() {
-      selectedChakra = chakra;
-      _updateRecommendedCrystals(chakra);
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final service = context.read<CrystalService>();
+      final response = await service.generateHealingLayout(
+        availableCrystals: availableCrystals,
+        targetChakras: targetChakras ?? chakraData.keys.toList(),
+        intention: intention,
+      );
+
+      if (!mounted) return;
+
+      if (response == null) {
+        throw Exception('No healing layout returned from the server.');
+      }
+
+      final layout = Map<String, dynamic>.from(response['layout'] as Map? ?? {});
+      final placements = (layout['placements'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      final suggestions = List<String>.from(response['suggestedCrystals'] as List? ?? const []);
+
+      setState(() {
+        _layout = layout;
+        _placements = placements;
+        _suggestedCrystals = suggestions;
+        selectedChakra = placements.isNotEmpty
+            ? placements.first['chakra']?.toString()
+            : (targetChakras?.isNotEmpty == true ? targetChakras!.first : selectedChakra);
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Unable to generate healing layout: $error';
+        _isLoading = false;
+      });
+    }
   }
 
-  void _updateRecommendedCrystals(String chakra) {
-    final collectionService = context.read<CollectionServiceV2>();
-    final chakraCrystals = chakraData[chakra]!['crystals'] as List<String>;
-    
-    // Filter to show only crystals the user owns
-    recommendedCrystals = collectionService.collection
-        .where((entry) => chakraCrystals.contains(entry.crystal.name))
-        .map((entry) => entry.crystal.name)
-        .toList();
+  Map<String, dynamic>? get _currentPlacement {
+    if (selectedChakra == null) return null;
+    try {
+      return _placements.firstWhere(
+        (placement) => placement['chakra']?.toString().toLowerCase() ==
+            selectedChakra!.toLowerCase(),
+        orElse: () => {},
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final ownedCrystals = context.select<CollectionServiceV2, Set<String>>(
+      (service) => service.collection
+          .map((entry) => entry.crystal.name.toLowerCase())
+          .toSet(),
+    );
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -162,7 +206,6 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
       ),
       body: Stack(
         children: [
-          // Mystical background
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -176,8 +219,6 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
               ),
             ),
           ),
-          
-          // Energy particles
           AnimatedBuilder(
             animation: _chakraAnimation,
             builder: (context, child) {
@@ -189,386 +230,420 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
               );
             },
           ),
-          
           SafeArea(
-            child: selectedChakra == null
-                ? _buildChakraSelector()
-                : _buildHealingSession(),
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF9B59B6)),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_errorMessage != null) _buildErrorBanner(_errorMessage!),
+                        _buildHeader(),
+                        const SizedBox(height: 24),
+                        _buildChakraTimeline(),
+                        const SizedBox(height: 24),
+                        _buildPlacementDetail(),
+                        const SizedBox(height: 24),
+                        _buildBreathwork(),
+                        const SizedBox(height: 24),
+                        _buildIntegration(),
+                        const SizedBox(height: 24),
+                        _buildSuggestedCrystals(ownedCrystals),
+                        const SizedBox(height: 24),
+                        _buildActions(),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildChakraSelector() {
-    return Column(
-      children: [
-        const SizedBox(height: 40),
-        Text(
-          'Select a Chakra to Balance',
-          style: GoogleFonts.cinzel(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+  Widget _buildErrorBanner(String message) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.deepOrange.withOpacity(0.25),
+        border: Border.all(color: Colors.deepOrange.withOpacity(0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.orangeAccent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.poppins(color: Colors.white, height: 1.4),
+            ),
           ),
-        ),
-        const SizedBox(height: 40),
-        Expanded(
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Human silhouette
-              Container(
-                width: 200,
-                height: 400,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withOpacity(0.1),
-                      Colors.white.withOpacity(0.05),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-              
-              // Chakra points
-              ...chakraData.entries.map((entry) {
-                final chakra = entry.key;
-                final data = entry.value;
-                final position = data['position'] as double;
-                
-                return Positioned(
-                  top: position * 400,
-                  child: GestureDetector(
-                    onTap: () => _selectChakra(chakra),
-                    child: AnimatedBuilder(
-                      animation: _pulseAnimation,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: _pulseAnimation.value,
-                          child: Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: data['color'] as Color,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: (data['color'] as Color).withOpacity(0.6),
-                                  blurRadius: 20,
-                                  spreadRadius: 5,
-                                ),
-                              ],
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.brightness_1,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              }).toList(),
-            ],
-          ),
-        ),
-        
-        // Chakra legend
-        Container(
-          height: 80,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: chakraData.length,
-            itemBuilder: (context, index) {
-              final chakra = chakraData.keys.elementAt(index);
-              final color = chakraData[chakra]!['color'] as Color;
-              
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: color,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      chakra,
-                      style: GoogleFonts.poppins(
-                        fontSize: 10,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 20),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildHealingSession() {
-    final data = chakraData[selectedChakra]!;
-    final chakraCrystals = data['crystals'] as List<String>;
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
+  Widget _buildHeader() {
+    final intention = _layout?['intention']?.toString() ?? 'Align your energy centres with intentional crystal work.';
+    final duration = _layout?['durationMinutes'] != null
+        ? '${_layout!['durationMinutes']} min'
+        : '20 min';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.15),
+                Colors.white.withOpacity(0.05),
+              ],
+            ),
+            border: Border.all(color: Colors.white.withOpacity(0.2), width: 1.5),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Healing Intention',
+                style: GoogleFonts.cinzel(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                intention,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  color: Colors.white.withOpacity(0.9),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _buildInfoChip(Icons.timelapse, 'Duration', duration),
+                  const SizedBox(width: 12),
+                  if (_layout?['affirmation'] != null)
+                    _buildInfoChip(Icons.favorite, 'Affirmation', 'Scroll below'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(IconData icon, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(height: 40),
-          
-          // Back button
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () {
-                setState(() {
-                  selectedChakra = null;
-                });
-              },
-              icon: const Icon(Icons.arrow_back, color: Colors.white70),
-              label: Text(
-                'Change Chakra',
-                style: GoogleFonts.poppins(color: Colors.white70),
+          Icon(icon, color: Colors.white70, size: 18),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChakraTimeline() {
+    final chakras = chakraData.keys.toList();
+    final current = selectedChakra?.toLowerCase();
+
+    return SizedBox(
+      height: 120,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: chakras.length,
+        itemBuilder: (context, index) {
+          final chakra = chakras[index];
+          final data = chakraData[chakra]!;
+          final isSelected = chakra.toLowerCase() == current;
+
+          return GestureDetector(
+            onTap: () => setState(() => selectedChakra = chakra),
+            child: Container(
+              width: 120,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  colors: [
+                    (data['color'] as Color).withOpacity(isSelected ? 0.8 : 0.4),
+                    (data['color'] as Color).withOpacity(isSelected ? 0.6 : 0.2),
+                  ],
+                ),
+                border: Border.all(
+                  color: isSelected ? Colors.white : Colors.white24,
+                  width: 1.8,
+                ),
+              ),
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chakra,
+                    style: GoogleFonts.cinzel(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    data['location'],
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    data['element'],
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPlacementDetail() {
+    final placement = _currentPlacement;
+    final chakraInfo = selectedChakra != null ? chakraData[selectedChakra!] : null;
+
+    if (placement == null) {
+      return _buildGlassCard(
+        title: 'Choose a Chakra',
+        icon: Icons.self_improvement,
+        child: Text(
+          'Select a chakra above to reveal placement guidance and crystal assignments.',
+          style: GoogleFonts.poppins(color: Colors.white70, height: 1.5),
+        ),
+      );
+    }
+
+    final focus = (placement['focus'] as List?)?.cast<String>() ?? const [];
+    final instructions = placement['instructions']?.toString() ?? 'Hold space for gentle breath and visualise balanced energy.';
+
+    return _buildGlassCard(
+      title: '${placement['chakra']} Placement',
+      icon: Icons.brightness_low,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (chakraInfo != null) ...[
+            Text(
+              chakraInfo['affirmation'],
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.white.withOpacity(0.85),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Text(
+            instructions,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: Colors.white.withOpacity(0.9),
+              height: 1.6,
+            ),
           ),
-          
-          // Chakra visualization
-          AnimatedBuilder(
-            animation: _pulseAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: _pulseAnimation.value,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: data['color'] as Color,
-                    boxShadow: [
-                      BoxShadow(
-                        color: (data['color'] as Color).withOpacity(0.6),
-                        blurRadius: 40,
-                        spreadRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          selectedChakra!,
-                          style: GoogleFonts.cinzel(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Text(
-                          data['element'] as String,
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 40),
-          
-          // Chakra info card
-          ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withOpacity(0.15),
-                      Colors.white.withOpacity(0.05),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.2),
-                    width: 1.5,
-                  ),
-                ),
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Location',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            color: Colors.white70,
-                          ),
-                        ),
-                        Text(
-                          data['location'] as String,
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Frequency',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            color: Colors.white70,
-                          ),
-                        ),
-                        Text(
-                          data['frequency'] as String,
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(16),
+          if (focus.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: focus
+                  .map(
+                    (item) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: (data['color'] as Color).withOpacity(0.2),
+                        color: Colors.white.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: (data['color'] as Color).withOpacity(0.3),
-                        ),
+                        border: Border.all(color: Colors.white24),
                       ),
+                      child: Text(
+                        item,
+                        style: GoogleFonts.poppins(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBreathwork() {
+    final breathwork = _layout?['breathwork'];
+    if (breathwork is! Map<String, dynamic>) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildGlassCard(
+      title: breathwork['technique']?.toString() ?? 'Breathwork',
+      icon: Icons.air,
+      child: Text(
+        breathwork['description']?.toString() ?? 'Use intentional breathing to anchor energy between placements.',
+        style: GoogleFonts.poppins(
+          fontSize: 14,
+          color: Colors.white.withOpacity(0.9),
+          height: 1.6,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIntegration() {
+    final integration = _layout?['integration'];
+    final affirmation = _layout?['affirmation'];
+
+    final integrationList = integration is List ? integration.cast<String>() : const <String>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (integrationList.isNotEmpty)
+          _buildGlassCard(
+            title: 'Integration',
+            icon: Icons.spa,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: integrationList
+                  .map(
+                    (step) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.format_quote,
-                            color: data['color'] as Color,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
+                          const Text('• ', style: TextStyle(color: Colors.white70, fontSize: 18)),
                           Expanded(
                             child: Text(
-                              data['affirmation'] as String,
+                              step,
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
-                                color: Colors.white,
-                                fontStyle: FontStyle.italic,
+                                color: Colors.white.withOpacity(0.85),
+                                height: 1.5,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
+                  )
+                  .toList(),
+            ),
+          ),
+        if (affirmation != null) ...[
+          const SizedBox(height: 20),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF9B59B6), Color(0xFF8E44AD)],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Affirmation',
+                      style: GoogleFonts.cinzel(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      affirmation.toString(),
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontStyle: FontStyle.italic,
+                        height: 1.6,
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
           ),
-          
-          const SizedBox(height: 24),
-          
-          // Recommended crystals from collection
-          _buildRecommendedCrystals(chakraCrystals),
-          
-          const SizedBox(height: 24),
-          
-          // Start healing session button
-          Container(
-            width: double.infinity,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  data['color'] as Color,
-                  (data['color'] as Color).withOpacity(0.7),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: (data['color'] as Color).withOpacity(0.3),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _startHealingSession,
-                borderRadius: BorderRadius.circular(16),
-                child: Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Start Healing Session',
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
         ],
-      ),
+      ],
     );
   }
 
-  Widget _buildRecommendedCrystals(List<String> chakraCrystals) {
+  Widget _buildSuggestedCrystals(Set<String> ownedCrystals) {
+    if (_suggestedCrystals.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Healing Crystals',
+          'Suggested Support Crystals',
           style: GoogleFonts.cinzel(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -576,205 +651,163 @@ class _CrystalHealingScreenState extends State<CrystalHealingScreen>
           ),
         ),
         const SizedBox(height: 16),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 1.5,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          itemCount: chakraCrystals.length,
-          itemBuilder: (context, index) {
-            final crystal = chakraCrystals[index];
-            final isOwned = recommendedCrystals.contains(crystal);
-            
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white.withOpacity(0.1),
-                        Colors.white.withOpacity(0.05),
-                      ],
-                    ),
-                    border: Border.all(
-                      color: isOwned 
-                          ? const Color(0xFF10B981).withOpacity(0.5)
-                          : Colors.white.withOpacity(0.2),
-                      width: 1.5,
-                    ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: _suggestedCrystals.map((name) {
+            final isOwned = ownedCrystals.contains(name.toLowerCase());
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: isOwned ? Colors.greenAccent : Colors.white24),
+                color: Colors.white.withOpacity(0.08),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.diamond, size: 16, color: Colors.white70),
+                  const SizedBox(width: 8),
+                  Text(
+                    name,
+                    style: GoogleFonts.poppins(color: Colors.white),
                   ),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.diamond,
-                        color: isOwned 
-                            ? const Color(0xFF10B981) 
-                            : Colors.white60,
-                        size: 24,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        crystal,
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      if (isOwned) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'In Collection',
-                            style: GoogleFonts.poppins(
-                              fontSize: 10,
-                              color: const Color(0xFF10B981),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                  if (isOwned) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.check_circle, color: Colors.greenAccent, size: 16),
+                  ],
+                ],
               ),
             );
-          },
+          }).toList(),
         ),
-        if (recommendedCrystals.isEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.1),
-              ),
-            ),
-            child: Text(
-              'Add some $selectedChakra chakra crystals to your collection for enhanced healing!',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: Colors.white70,
-                fontStyle: FontStyle.italic,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
       ],
     );
   }
 
-  void _startHealingSession() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A0B2E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-            color: Colors.white.withOpacity(0.2),
-            width: 1.5,
+  Widget _buildActions() {
+    final chakra = selectedChakra;
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: chakra == null
+                ? null
+                : () => _generateLayout(targetChakras: [chakra]),
+            icon: const Icon(Icons.auto_fix_high),
+            label: const Text('Focus on this chakra'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF9B59B6),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
           ),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: (chakraData[selectedChakra]!['color'] as Color),
-                boxShadow: [
-                  BoxShadow(
-                    color: (chakraData[selectedChakra]!['color'] as Color).withOpacity(0.6),
-                    blurRadius: 30,
-                    spreadRadius: 10,
+        const SizedBox(width: 12),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => _generateLayout(),
+            icon: const Icon(Icons.all_inclusive, color: Colors.white70),
+            label: const Text('Full alignment', style: TextStyle(color: Colors.white70)),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.white24),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGlassCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.12),
+                Colors.white.withOpacity(0.04),
+              ],
+            ),
+            border: Border.all(color: Colors.white24, width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: Colors.purpleAccent),
+                  const SizedBox(width: 12),
+                  Text(
+                    title,
+                    style: GoogleFonts.cinzel(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ],
               ),
-              child: const Icon(
-                Icons.healing,
-                color: Colors.white,
-                size: 50,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Healing Session Started',
-              style: GoogleFonts.cinzel(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Place your ${recommendedCrystals.isNotEmpty ? recommendedCrystals.first : "healing crystal"} on your $selectedChakra area and breathe deeply.',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: Colors.white70,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Complete',
-              style: GoogleFonts.poppins(
-                color: chakraData[selectedChakra]!['color'] as Color,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+              const SizedBox(height: 16),
+              child,
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class EnergyParticlesPainter extends CustomPainter {
-  final double animationValue;
-
   EnergyParticlesPainter({required this.animationValue});
+
+  final double animationValue;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
+      ..color = Colors.white.withOpacity(0.05)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final maxRadius = math.min(centerX, centerY) * 0.9;
+
+    for (var i = 0; i < 7; i++) {
+      final radius = maxRadius * ((i + animationValue) / 7);
+      final opacity = (1 - (i / 7)).clamp(0.1, 0.6);
+
+      final radialPaint = Paint()
+        ..color = Colors.purpleAccent.withOpacity(opacity)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+
+      canvas.drawCircle(Offset(centerX, centerY), radius, radialPaint);
+    }
+
+    final starPaint = Paint()
+      ..color = Colors.white.withOpacity(0.3)
       ..style = PaintingStyle.fill;
 
-    for (int i = 0; i < 30; i++) {
-      final x = (i * 137.5 + animationValue * size.width) % size.width;
-      final y = (math.sin(i + animationValue * math.pi * 2) * 100) + 
-                size.height / 2 + (i * 23.0 % size.height / 2);
-      final opacity = (math.sin(animationValue * math.pi * 2 + i) + 1) / 2;
-      final radius = 2 + math.sin(i + animationValue * math.pi) * 2;
-      
-      paint.color = Colors.white.withOpacity(opacity * 0.6);
-      canvas.drawCircle(Offset(x, y), radius, paint);
+    for (var i = 0; i < 60; i++) {
+      final angle = (i / 60) * math.pi * 2;
+      final radius = maxRadius * 0.7 * (0.4 + animationValue * 0.6);
+      final x = centerX + radius * math.cos(angle + animationValue * math.pi * 2);
+      final y = centerY + radius * math.sin(angle + animationValue * math.pi * 2);
+      canvas.drawCircle(Offset(x, y), 2, starPaint);
     }
   }
 
