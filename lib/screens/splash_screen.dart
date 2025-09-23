@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import "../widgets/no_particles.dart";
-import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -72,9 +72,12 @@ class _SplashScreenState extends State<SplashScreen>
     
     // Navigate to auth wrapper after animations complete
     await Future.delayed(const Duration(milliseconds: 4000));
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/auth-check');
-    }
+    final hasSeen = await StorageService.hasSeenOnboarding();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(
+      context,
+      hasSeen ? '/auth-check' : '/onboarding',
+    );
   }
   
   @override

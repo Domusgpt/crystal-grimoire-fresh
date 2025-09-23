@@ -10,9 +10,13 @@ import 'services/collection_service_v2.dart';
 import 'screens/home_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/auth_wrapper.dart';
-import 'screens/auth/login_screen.dart';
+import 'screens/auth/authentication_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/notification_screen.dart';
+import 'screens/help_screen.dart';
+import 'screens/profile_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 
@@ -57,10 +61,15 @@ class CrystalGrimoireApp extends StatelessWidget {
         home: const AuthWrapper(),
         routes: {
           '/auth-check': (context) => const AuthWrapper(),
-          '/login': (context) => const LoginScreen(),
+          '/login': (context) => const AuthenticationScreen(),
+          '/authentication': (context) => const AuthenticationScreen(),
           '/home': (context) => const HomeScreen(),
           '/settings': (context) => const SettingsScreen(),
           '/subscription': (context) => const SubscriptionScreen(),
+          '/onboarding': (context) => const OnboardingScreen(),
+          '/notifications': (context) => const NotificationScreen(),
+          '/help': (context) => HelpScreen(),
+          '/profile': (context) => const AccountScreen(),
         },
       ),
     );

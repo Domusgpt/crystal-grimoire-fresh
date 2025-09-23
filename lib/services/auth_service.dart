@@ -209,7 +209,21 @@ class AuthService extends ChangeNotifier {
       throw Exception('Apple sign in failed: $e');
     }
   }
-  
+
+  // Anonymous preview mode
+  static Future<UserCredential?> signInAnonymously() async {
+    try {
+      print('🕊️ Starting anonymous preview session...');
+      final credential = await _auth.signInAnonymously();
+      await _createUserDocument(credential.user!);
+      return credential;
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw Exception('Anonymous sign in failed: $e');
+    }
+  }
+
   // Sign out - Modern 7.x pattern
   static Future<void> signOut() async {
     try {

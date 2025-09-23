@@ -188,6 +188,14 @@ class _AccountScreenState extends State<AccountScreen>
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.notifications_none, color: Colors.white),
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => Navigator.pushNamed(context, '/help'),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../services/app_service.dart';
-import '../screens/auth/login_screen.dart';
+import '../screens/auth/authentication_screen.dart';
 import '../screens/home_screen.dart';
 
 class AuthWrapper extends StatelessWidget {
@@ -35,7 +35,7 @@ class AuthWrapper extends StatelessWidget {
             if (snapshot.hasData && snapshot.data != null) {
               return const HomeScreen();
             } else {
-              return const LoginScreen();
+              return const AuthenticationScreen();
             }
           },
         );
