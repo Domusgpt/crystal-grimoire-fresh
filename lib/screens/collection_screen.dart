@@ -7,6 +7,8 @@ import '../theme/app_theme.dart';
 import '../widgets/glassmorphic_container.dart';
 import '../services/collection_service_v2.dart';
 import '../models/crystal_collection.dart';
+import '../widgets/holographic_button.dart';
+import 'crystal_compatibility_screen.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -81,7 +83,25 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   ],
                 ),
               ),
-              
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: HolographicButton(
+                  text: '✨ Crystal Compatibility',
+                  icon: Icons.auto_awesome,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CrystalCompatibilityScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
               // Collection Grid
               Expanded(
                 child: Padding(
@@ -234,6 +254,101 @@ class _CollectionScreenState extends State<CollectionScreen> {
     );
   }
 
+  String? _resolvePreviewImage(CollectionEntry entry) {
+    final candidates = <String?>[
+      ...entry.images,
+      ...entry.crystal.imageUrls,
+      entry.crystal.imageUrl,
+    ];
+
+    for (final candidate in candidates) {
+      final value = candidate?.trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+
+    return null;
+  }
+
+  Widget _buildCrystalThumbnail(CollectionEntry entry) {
+    final imageUrl = _resolvePreviewImage(entry);
+    final borderRadius = BorderRadius.circular(10);
+
+    return Container(
+      width: double.infinity,
+      height: 80,
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.crystalGlow.withOpacity(0.28),
+            AppTheme.amethystPurple.withOpacity(0.18),
+          ],
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: imageUrl != null
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) {
+                        return child;
+                      }
+                      final expected = progress.expectedTotalBytes;
+                      final value = expected != null
+                          ? progress.cumulativeBytesLoaded / expected
+                          : null;
+                      return Center(
+                        child: SizedBox(
+                          height: 26,
+                          width: 26,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            value: value,
+                            color: AppTheme.crystalGlow,
+                          ),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, _, __) => const Center(
+                      child: Icon(
+                        Icons.diamond,
+                        size: 40,
+                        color: AppTheme.crystalGlow,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.0),
+                          Colors.black.withOpacity(0.25),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : const Center(
+                child: Icon(
+                  Icons.diamond,
+                  size: 40,
+                  color: AppTheme.crystalGlow,
+                ),
+              ),
+      ),
+    );
+  }
+
   Widget _buildCrystalCard(CollectionEntry entry) {
     final crystal = entry.crystal;
     final intents = crystal.metaphysicalProperties.isNotEmpty
@@ -248,40 +363,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Crystal icon/image placeholder
-            Container(
-              width: double.infinity,
-              height: 80,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: LinearGradient(
-                  colors: [
-                    AppTheme.crystalGlow.withOpacity(0.3),
-                    AppTheme.amethystPurple.withOpacity(0.2),
-                  ],
-                ),
-              ),
-              child: crystal.imageUrls.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        crystal.imageUrls.first,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, _, __) => const Icon(
-                          Icons.diamond,
-                          size: 40,
-                          color: AppTheme.crystalGlow,
-                        ),
-                      ),
-                    )
-                  : const Icon(
-                      Icons.diamond,
-                      size: 40,
-                      color: AppTheme.crystalGlow,
-                    ),
-            ),
+            _buildCrystalThumbnail(entry),
             const SizedBox(height: 10),
-            // Crystal name
             Text(
               crystal.name.isNotEmpty ? crystal.name : 'Unknown Crystal',
               style: const TextStyle(

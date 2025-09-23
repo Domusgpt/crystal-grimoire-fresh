@@ -660,8 +660,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
     );
   }
 
-  Widget _buildListingsGrid(List<MarketplaceListing> listings,
-      {bool showStatus = false}) {
+  Widget _buildListingsGrid(
+    List<MarketplaceListing> listings, {
+    bool showStatus = false,
+  }) {
     return GridView.builder(
       padding: const EdgeInsets.all(20),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -678,8 +680,97 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
     );
   }
 
-  Widget _buildListingCard(MarketplaceListing listing,
-      {bool showStatus = false}) {
+  Widget _buildListingImage(MarketplaceListing listing) {
+    final borderRadius = BorderRadius.circular(16);
+    final accent = listing.displayColor;
+    final gradient = LinearGradient(
+      colors: [
+        accent.withOpacity(0.35),
+        accent.withOpacity(0.15),
+      ],
+    );
+
+    final imageUrl = listing.imageUrl;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Container(
+        height: 120,
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          gradient: gradient,
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          listing.titleEmoji,
+          style: const TextStyle(fontSize: 44),
+        ),
+      );
+    }
+
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        gradient: gradient,
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) {
+                  return child;
+                }
+                final expected = progress.expectedTotalBytes;
+                final value = expected != null
+                    ? progress.cumulativeBytesLoaded / expected
+                    : null;
+                return Center(
+                  child: SizedBox(
+                    height: 28,
+                    width: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: value,
+                      color: Colors.white70,
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Center(
+                  child: Text(
+                    listing.titleEmoji,
+                    style: const TextStyle(fontSize: 44),
+                  ),
+                );
+              },
+            ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.0),
+                    Colors.black.withOpacity(0.28),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListingCard(
+    MarketplaceListing listing, {
+    bool showStatus = false,
+  }) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: Stack(
@@ -703,171 +794,143 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
                 ),
               ),
               child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Image placeholder
-                Container(
-                  height: 120,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      listing.displayColor.withOpacity(0.3),
-                      listing.displayColor.withOpacity(0.15),
-                    ],
-                  ),
-                ),
-                child: Center(
-                  child: listing.hasImage
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.network(
-                            listing.imageUrl!,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Text(
-                                listing.titleEmoji,
-                                style: const TextStyle(fontSize: 44),
-                              );
-                            },
-                          ),
-                        )
-                      : Text(
-                          listing.titleEmoji,
-                          style: const TextStyle(fontSize: 44),
-                        ),
-                ),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      listing.title,
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (listing.isVerifiedSeller)
-                          const Icon(
-                            Icons.verified,
-                            color: Color(0xFF3B82F6),
-                            size: 14,
-                          ),
-                        if (listing.isVerifiedSeller)
-                          const SizedBox(width: 4),
-                        Text(
-                          listing.sellerName,
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star,
-                          color: Color(0xFFFFD700),
-                          size: 14,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          listing.ratingLabel,
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      listing.description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: Colors.white60,
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildListingImage(listing),
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _currency.format(listing.price),
+                          listing.title,
                           style: GoogleFonts.poppins(
-                            fontSize: 18,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: const Color(0xFFFFD700),
+                            color: Colors.white,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            if (listing.isVerifiedSeller)
+                              const Icon(
+                                Icons.verified,
+                                color: Color(0xFF3B82F6),
+                                size: 14,
+                              ),
+                            if (listing.isVerifiedSeller)
+                              const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                listing.sellerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Color(0xFFFFD700),
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              listing.ratingLabel,
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          listing.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.white60,
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700).withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.shopping_cart,
-                            color: Color(0xFFFFD700),
-                            size: 16,
-                          ),
+                        const Spacer(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _currency.format(listing.price),
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFFFFD700),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD700).withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.shopping_cart,
+                                color: Color(0xFFFFD700),
+                                size: 16,
+                              ),
+                            ),
+                          ],
                         ),
+                        if (showStatus && listing.isPending) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Submitted ${_formatRelativeTime(listing.submittedAt)}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.white60,
+                            ),
+                          ),
+                        ],
+                        if (showStatus && listing.reviewNotes != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            listing.isRejected
+                                ? 'Moderator notes: ${listing.reviewNotes}'
+                                : 'Notes: ${listing.reviewNotes}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: listing.isRejected
+                                  ? Colors.redAccent
+                                  : Colors.white60,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    if (showStatus && listing.isPending) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Submitted ${_formatRelativeTime(listing.submittedAt)}',
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.white60,
-                        ),
-                      ),
-                    ],
-                    if (showStatus && listing.reviewNotes != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        listing.isRejected
-                            ? 'Moderator notes: ${listing.reviewNotes}'
-                            : 'Notes: ${listing.reviewNotes}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: listing.isRejected
-                              ? Colors.redAccent
-                              : Colors.white60,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-        if (showStatus && !listing.isActive)
-          Positioned(
-            top: 12,
-            left: 12,
-            child: _buildStatusChip(listing),
-          ),
-      ],
-    );
+          if (showStatus && !listing.isActive)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: _buildStatusChip(listing),
+            ),
+        ],
+      );
   }
 
   Widget _buildStatusChip(MarketplaceListing listing) {
