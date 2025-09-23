@@ -2102,10 +2102,107 @@ exports.checkCrystalCompatibility = onCall(
       throw new HttpsError('invalid-argument', 'Provide at least one crystal name.');
     }
 
+    const providedProfile = typeof request.data?.userProfile === 'object' && request.data.userProfile
+      ? { ...request.data.userProfile }
+      : {};
+
+    const collectIntentions = [];
+    const visitedIntentionSources = new WeakSet();
+    const addCandidate = (value) => {
+      if (typeof value !== 'string') {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (!collectIntentions.includes(trimmed)) {
+        collectIntentions.push(trimmed);
+      }
+    };
+
+    const addFromList = (list) => {
+      if (!Array.isArray(list)) {
+        return;
+      }
+      list.forEach((item) => {
+        if (typeof item === 'string') {
+          addCandidate(item);
+        } else if (item && typeof item === 'object') {
+          if (typeof item.intention === 'string') {
+            addCandidate(item.intention);
+          }
+          if (typeof item.focus === 'string') {
+            addCandidate(item.focus);
+          }
+          if (typeof item.name === 'string') {
+            addCandidate(item.name);
+          }
+        }
+      });
+    };
+
+    const harvestIntentions = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      if (visitedIntentionSources.has(payload)) {
+        return;
+      }
+      visitedIntentionSources.add(payload);
+      addCandidate(payload.primaryIntention || payload.primary_intention);
+      addCandidate(payload.focusIntention || payload.focus_intention);
+      addCandidate(payload.currentIntention || payload.current_intention);
+      addCandidate(payload.intention || payload.focus);
+      addFromList(payload.intentions);
+      addFromList(payload.focusIntentions || payload.focus_intentions);
+      addFromList(payload.intentionHistory || payload.intention_history);
+      if (payload.preferences) {
+        harvestIntentions(payload.preferences);
+      }
+      if (payload.settings) {
+        harvestIntentions(payload.settings);
+      }
+    };
+
+    harvestIntentions(providedProfile);
+
     const rawPurpose = typeof request.data?.purpose === 'string' ? request.data.purpose.trim() : '';
-    const derivedPurpose = rawPurpose || (Array.isArray(userProfile.intentions) && userProfile.intentions.length > 0
-      ? String(userProfile.intentions[0]).trim()
-      : '');
+
+    if (!rawPurpose && request.auth) {
+      if (collectIntentions.length === 0) {
+        try {
+          const profileSnapshot = await db.collection('users').doc(request.auth.uid).get();
+          if (profileSnapshot.exists) {
+            const profileData = profileSnapshot.data() || {};
+            harvestIntentions(profileData);
+          }
+        } catch (error) {
+          console.warn('⚠️ Unable to resolve user profile intentions for compatibility:', error.message);
+        }
+      }
+
+      if (collectIntentions.length === 0) {
+        try {
+          const moonPreferenceSnapshot = await db
+            .collection('users')
+            .doc(request.auth.uid)
+            .collection('ritual_preferences')
+            .doc('moon')
+            .get();
+          if (moonPreferenceSnapshot.exists) {
+            const moonData = moonPreferenceSnapshot.data() || {};
+            if (typeof moonData.intention === 'string') {
+              addCandidate(moonData.intention);
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Unable to resolve moon ritual intention for compatibility:', error.message);
+        }
+      }
+    }
+
+    const derivedPurpose = rawPurpose || collectIntentions[0] || '';
     const purpose = derivedPurpose;
     const analyzed = [];
     const missing = [];
