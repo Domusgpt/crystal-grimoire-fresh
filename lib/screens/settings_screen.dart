@@ -725,6 +725,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           ListTile(
+            leading: Icon(Icons.notifications_active, color: Colors.purple),
+            title: Text(
+              'Notification Center',
+              style: GoogleFonts.crimsonText(
+                color: Colors.white,
+                fontSize: 18,
+              ),
+            ),
+            subtitle: Text(
+              'Review moon alerts, ritual reminders, and marketplace updates',
+              style: GoogleFonts.crimsonText(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+            onTap: () => Navigator.pushNamed(context, '/notifications'),
+          ),
+          ListTile(
             leading: Icon(Icons.security, color: Colors.purple),
             title: Text(
               'Privacy & Security',
@@ -833,9 +851,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _openWebsiteLink(_config.privacyUrl),
           ),
           ListTile(
-            leading: Icon(Icons.help, color: Colors.purple),
+            leading: Icon(Icons.menu_book_outlined, color: Colors.purple),
             title: Text(
-              'Help & Support',
+              'Help & Tutorials',
+              style: GoogleFonts.crimsonText(
+                color: Colors.white,
+                fontSize: 18,
+              ),
+            ),
+            subtitle: Text(
+              'Guides for rituals, dreamwork, marketplace, and deployment',
+              style: GoogleFonts.crimsonText(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+            onTap: () => Navigator.pushNamed(context, '/help'),
+          ),
+          ListTile(
+            leading: Icon(Icons.support_agent, color: Colors.purple),
+            title: Text(
+              'Contact Support',
               style: GoogleFonts.crimsonText(
                 color: Colors.white,
                 fontSize: 18,

@@ -14,7 +14,6 @@ import 'crystal_healing_screen.dart';
 import 'dream_journal_screen.dart';
 import 'sound_bath_screen.dart';
 import 'marketplace_screen.dart';
-import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,13 +94,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.help_outline, color: AppTheme.crystalGlow),
+            onPressed: () => Navigator.pushNamed(context, '/help'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_none, color: AppTheme.crystalGlow),
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+          ),
+          IconButton(
             icon: const Icon(Icons.person_outline, color: AppTheme.crystalGlow),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => AccountScreen()),
-              );
-            },
+            onPressed: () => Navigator.pushNamed(context, '/profile'),
           ),
         ],
       ),
