@@ -203,14 +203,25 @@ class CrystalService extends ChangeNotifier {
   Future<Map<String, dynamic>?> checkCompatibility({
     required List<String> crystalNames,
     String? purpose,
+    Map<String, dynamic>? userProfile,
   }) async {
     try {
       final callable = functions.httpsCallable('checkCrystalCompatibility');
-      final result = await callable.call({
+      final payload = <String, dynamic>{
         'crystalNames': crystalNames,
-        'purpose': purpose,
-      });
-      
+      };
+
+      final trimmedPurpose = purpose?.trim();
+      if (trimmedPurpose != null && trimmedPurpose.isNotEmpty) {
+        payload['purpose'] = trimmedPurpose;
+      }
+
+      if (userProfile != null && userProfile.isNotEmpty) {
+        payload['userProfile'] = userProfile;
+      }
+
+      final result = await callable.call(payload);
+
       return result.data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('Error checking compatibility: $e');
