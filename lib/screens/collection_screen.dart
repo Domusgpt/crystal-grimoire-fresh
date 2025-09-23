@@ -7,6 +7,8 @@ import '../theme/app_theme.dart';
 import '../widgets/glassmorphic_container.dart';
 import '../services/collection_service_v2.dart';
 import '../models/crystal_collection.dart';
+import '../widgets/holographic_button.dart';
+import 'crystal_compatibility_screen.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -81,7 +83,25 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   ],
                 ),
               ),
-              
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: HolographicButton(
+                  text: '✨ Crystal Compatibility',
+                  icon: Icons.auto_awesome,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CrystalCompatibilityScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
               // Collection Grid
               Expanded(
                 child: Padding(
