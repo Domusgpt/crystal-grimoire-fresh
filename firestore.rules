@@ -34,6 +34,12 @@ service cloud.firestore {
       return value is string && value.size() >= minLen && value.size() <= maxLen;
     }
 
+    function isRecentTimestampValue(value) {
+      return value is timestamp &&
+             value > request.time - duration.value(1, 'm') &&
+             value <= request.time;
+    }
+
     // User profiles with enhanced validation
     match /users/{userId} {
       allow read, update: if isOwner(userId) && isValidEmail();
@@ -103,6 +109,26 @@ service cloud.firestore {
                      isValidStringLength(request.resource.data.content, 10, 5000) &&
                      request.resource.data.crystalSuggestions is list &&
                      request.resource.data.crystalsUsed is list;
+      }
+
+      // Moon ritual preferences synced across devices
+      match /ritual_preferences/{preferenceId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          request.resource.data.keys().hasOnly([
+            'phase', 'intention', 'moonMetadata', 'createdAt', 'updatedAt', 'submittedBy'
+          ]) &&
+          request.resource.data.phase is string &&
+          isValidStringLength(request.resource.data.phase, 3, 40) &&
+          (!request.resource.data.keys().hasAny(['intention']) || request.resource.data.intention == null ||
+            isValidStringLength(request.resource.data.intention, 0, 300)) &&
+          (!request.resource.data.keys().hasAny(['moonMetadata']) || request.resource.data.moonMetadata == null ||
+            request.resource.data.moonMetadata is map) &&
+          (!request.resource.data.keys().hasAny(['submittedBy']) ||
+            request.resource.data.submittedBy == request.auth.uid) &&
+          isRecentTimestampValue(request.resource.data.updatedAt) &&
+          (resource == null || request.resource.data.createdAt == resource.data.createdAt ||
+            request.resource.data.createdAt == null || isRecentTimestampValue(request.resource.data.createdAt));
       }
     }
     

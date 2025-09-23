@@ -91,6 +91,750 @@ const PLAN_ALIASES = {
   esper: 'founders',
 };
 
+const ECONOMY_EARN_RULES = {
+  onboarding_complete: 3,
+  daily_checkin: 2,
+  share_card: 1,
+  meditation_complete: 1,
+  crystal_identify_new: 1,
+  journal_entry: 1,
+  ritual_complete: 1,
+};
+
+const ECONOMY_SPEND_RULES = {
+  extra_identify: 1,
+  extra_guidance: 1,
+  priority_queue: 2,
+  theme_unlock: 5,
+};
+
+const ECONOMY_DAILY_LIMITS = {
+  share_card: 3,
+  meditation_complete: 1,
+  crystal_identify_new: 3,
+  journal_entry: 1,
+  ritual_complete: 1,
+};
+
+const CRYSTAL_LIBRARY = [
+  {
+    id: 'clear-quartz',
+    name: 'Clear Quartz',
+    variety: 'Crystalline Quartz',
+    scientificName: 'Silicon Dioxide',
+    description: 'The master healer that amplifies intentions, clears stagnation, and harmonizes all other crystals.',
+    imageUrl: '',
+    keywords: ['clarity', 'focus', 'amplify', 'manifest'],
+    intents: ['clarity', 'manifestation', 'healing', 'focus'],
+    colors: ['clear', 'white'],
+    chakras: ['Crown', 'All Chakras'],
+    zodiacSigns: ['All'],
+    elements: ['Air'],
+    metaphysicalProperties: {
+      healing_properties: ['Amplifies energy', 'Promotes clarity', 'Energises intentions'],
+      primary_chakras: ['Crown', 'All Chakras'],
+      zodiac_signs: ['All'],
+      elements: ['Air'],
+      affirmations: ['I am a clear channel for divine light.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Hexagonal',
+    },
+    careInstructions: {
+      cleansing: ['Smoke cleanse', 'Moonlight bath', 'Sound bowl'],
+      charging: ['Sunrise light', 'Full moon exposure', 'Selenite plate'],
+      storage: ['Store separate from softer stones to avoid scratches.'],
+      usage: ['Meditate holding the point toward you to amplify clarity.'],
+    },
+    cautions: ['Avoid intense midday sun to prevent energetic overwhelm.'],
+    identification: {
+      name: 'Clear Quartz',
+      confidence: 95,
+      variety: 'Crystalline Quartz',
+    },
+    properties: ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
+    highlight: true,
+  },
+  {
+    id: 'amethyst',
+    name: 'Amethyst',
+    variety: 'Purple Quartz',
+    scientificName: 'Silicon Dioxide',
+    description: 'A spiritual guardian that calms the nervous system, supports intuition, and protects energetic boundaries.',
+    imageUrl: '',
+    keywords: ['calm', 'protect', 'dreams', 'intuition'],
+    intents: ['calm', 'intuition', 'protection', 'sleep'],
+    colors: ['purple', 'violet'],
+    chakras: ['Third Eye', 'Crown'],
+    zodiacSigns: ['Pisces', 'Virgo', 'Aquarius', 'Capricorn'],
+    elements: ['Air'],
+    metaphysicalProperties: {
+      healing_properties: ['Encourages restful sleep', 'Protects aura', 'Deepens meditation'],
+      primary_chakras: ['Third Eye', 'Crown'],
+      zodiac_signs: ['Pisces', 'Virgo', 'Aquarius', 'Capricorn'],
+      elements: ['Air'],
+      affirmations: ['My intuition is protected and clear.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Moonlight', 'Sound bowl', 'Smoke'],
+      charging: ['Moonlight', 'Amethyst cluster', 'Visualization'],
+      storage: ['Keep away from prolonged direct sunlight to preserve colour.'],
+      usage: ['Place on nightstand for lucid dreams and restful sleep.'],
+    },
+    cautions: ['Colour may fade with extended sun exposure.'],
+    identification: {
+      name: 'Amethyst',
+      confidence: 92,
+      variety: 'Purple Quartz',
+    },
+    properties: ['Spiritual Growth', 'Protection', 'Clarity', 'Peace', 'Intuition'],
+    highlight: true,
+  },
+  {
+    id: 'rose-quartz',
+    name: 'Rose Quartz',
+    variety: 'Pink Quartz',
+    scientificName: 'Silicon Dioxide',
+    description: 'A gentle heart healer that nurtures compassion, forgiveness, and deep self-love.',
+    imageUrl: '',
+    keywords: ['love', 'compassion', 'heart'],
+    intents: ['love', 'compassion', 'emotional healing'],
+    colors: ['pink'],
+    chakras: ['Heart'],
+    zodiacSigns: ['Taurus', 'Libra'],
+    elements: ['Water'],
+    metaphysicalProperties: {
+      healing_properties: ['Opens the heart chakra', 'Invites compassion', 'Soothes grief'],
+      primary_chakras: ['Heart'],
+      zodiac_signs: ['Taurus', 'Libra'],
+      elements: ['Water'],
+      affirmations: ['I am worthy of infinite love.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Smoke cleanse', 'Moonlight', 'Gentle water rinse'],
+      charging: ['Moonlight', 'Self-love meditation'],
+      storage: ['Wrap in soft cloth to prevent chips.'],
+      usage: ['Place over heart centre during meditation to invite compassion.'],
+    },
+    cautions: ['Avoid harsh cleansers; polish gently.'],
+    identification: {
+      name: 'Rose Quartz',
+      confidence: 90,
+      variety: 'Pink Quartz',
+    },
+    properties: ['Love', 'Compassion', 'Healing', 'Peace', 'Self-Love'],
+    highlight: true,
+  },
+  {
+    id: 'black-tourmaline',
+    name: 'Black Tourmaline',
+    variety: 'Schorl',
+    scientificName: 'Sodium Iron Aluminium Borosilicate',
+    description: 'A protective shield that grounds excess energy and transforms dense vibrations.',
+    imageUrl: '',
+    keywords: ['protection', 'grounding', 'shield'],
+    intents: ['protection', 'grounding', 'purification'],
+    colors: ['black'],
+    chakras: ['Root'],
+    zodiacSigns: ['Capricorn', 'Libra'],
+    elements: ['Earth'],
+    metaphysicalProperties: {
+      healing_properties: ['Deflects negativity', 'Supports grounding', 'Stabilises anxious thoughts'],
+      primary_chakras: ['Root'],
+      zodiac_signs: ['Capricorn', 'Libra'],
+      elements: ['Earth'],
+      affirmations: ['I am protected and rooted in the Earth.'],
+    },
+    physicalProperties: {
+      composition: 'Na(Fe,Mg)₃Al₆(BO₃)₃Si₆O₁₈(OH)₄',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Salt bed (dry)', 'Sound bowl', 'Earth burial (short term)'],
+      charging: ['Moonlight', 'Sunset light'],
+      storage: ['Keep near entryways or tech for EMF shielding.'],
+      usage: ['Hold during meditation to release heavy emotions into the earth.'],
+    },
+    cautions: ['Avoid water cleansing to protect striations.'],
+    identification: {
+      name: 'Black Tourmaline',
+      confidence: 88,
+      variety: 'Schorl',
+    },
+    properties: ['Protection', 'Grounding', 'Purification', 'Stability'],
+    highlight: true,
+  },
+  {
+    id: 'citrine',
+    name: 'Citrine',
+    variety: 'Yellow Quartz',
+    scientificName: 'Silicon Dioxide',
+    description: 'The sun-kissed stone of joy, abundance, and creative momentum.',
+    imageUrl: '',
+    keywords: ['abundance', 'joy', 'confidence'],
+    intents: ['abundance', 'joy', 'confidence', 'creativity'],
+    colors: ['yellow', 'gold'],
+    chakras: ['Solar Plexus', 'Sacral'],
+    zodiacSigns: ['Gemini', 'Aries', 'Leo'],
+    elements: ['Fire'],
+    metaphysicalProperties: {
+      healing_properties: ['Attracts prosperity', 'Boosts confidence', 'Energises creativity'],
+      primary_chakras: ['Solar Plexus', 'Sacral'],
+      zodiac_signs: ['Gemini', 'Aries', 'Leo'],
+      elements: ['Fire'],
+      affirmations: ['I radiate confident creative energy.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Sound bath', 'Smoke cleanse'],
+      charging: ['Morning sunlight (short exposure)', 'Visualization'],
+      storage: ['Avoid intense heat to preserve natural colour.'],
+      usage: ['Place on workspace for momentum and creative focus.'],
+    },
+    cautions: ['Prolonged sun exposure can fade colour.'],
+    identification: {
+      name: 'Citrine',
+      confidence: 91,
+      variety: 'Yellow Quartz',
+    },
+    properties: ['Abundance', 'Joy', 'Creativity', 'Success', 'Energy'],
+    highlight: true,
+  },
+  {
+    id: 'selenite',
+    name: 'Selenite',
+    variety: 'Gypsum',
+    scientificName: 'Calcium Sulfate Dihydrate',
+    description: 'An angelic wand of light that purifies, uplifts, and refreshes stagnant energy.',
+    imageUrl: '',
+    keywords: ['cleansing', 'clarity', 'angelic'],
+    intents: ['cleansing', 'clarity', 'spiritual connection'],
+    colors: ['white'],
+    chakras: ['Crown', 'Third Eye'],
+    zodiacSigns: ['Cancer', 'Taurus'],
+    elements: ['Air'],
+    metaphysicalProperties: {
+      healing_properties: ['Cleanses auric field', 'Activates crown chakra', 'Connects with guides'],
+      primary_chakras: ['Crown', 'Third Eye'],
+      zodiac_signs: ['Cancer', 'Taurus'],
+      elements: ['Air'],
+      affirmations: ['My energy is luminous and clear.'],
+    },
+    physicalProperties: {
+      composition: 'CaSO₄·2H₂O',
+      hardness: '2',
+      crystal_system: 'Monoclinic',
+    },
+    careInstructions: {
+      cleansing: ['Sound bowl', 'Visualization', 'Smoke'],
+      charging: ['Moonlight', 'Breathwork'],
+      storage: ['Keep dry; selenite is water-soluble.'],
+      usage: ['Sweep the aura to clear energetic residue.'],
+    },
+    cautions: ['Never submerge in water. Handle gently to avoid scratching.'],
+    identification: {
+      name: 'Selenite',
+      confidence: 89,
+      variety: 'Gypsum',
+    },
+    properties: ['Cleansing', 'Charging', 'Clarity', 'Peace'],
+    highlight: true,
+  },
+  {
+    id: 'labradorite',
+    name: 'Labradorite',
+    variety: 'Feldspar',
+    scientificName: 'Calcium Sodium Aluminum Silicate',
+    description: 'A shimmering veil between worlds that awakens intuition and shields the aura.',
+    imageUrl: '',
+    keywords: ['intuition', 'magic', 'protection'],
+    intents: ['intuition', 'transformation', 'protection'],
+    colors: ['blue', 'green', 'gold'],
+    chakras: ['Third Eye', 'Throat'],
+    zodiacSigns: ['Scorpio', 'Sagittarius', 'Leo'],
+    elements: ['Water'],
+    metaphysicalProperties: {
+      healing_properties: ['Strengthens intuition', 'Protects during transformation', 'Stimulates imagination'],
+      primary_chakras: ['Third Eye', 'Throat'],
+      zodiac_signs: ['Scorpio', 'Sagittarius', 'Leo'],
+      elements: ['Water'],
+      affirmations: ['I trust the magic within my unfolding path.'],
+    },
+    physicalProperties: {
+      composition: '(Ca,Na)(Al,Si)₄O₈',
+      hardness: '6 - 6.5',
+      crystal_system: 'Triclinic',
+    },
+    careInstructions: {
+      cleansing: ['Smoke', 'Sound', 'Moonlight'],
+      charging: ['New moon intention', 'Visualization'],
+      storage: ['Wrap to avoid surface scratches.'],
+      usage: ['Hold during meditation to open the third eye.'],
+    },
+    cautions: ['Avoid chemical cleaners to preserve iridescence.'],
+    identification: {
+      name: 'Labradorite',
+      confidence: 87,
+      variety: 'Feldspar',
+    },
+    properties: ['Transformation', 'Intuition', 'Protection', 'Magic'],
+  },
+  {
+    id: 'moonstone',
+    name: 'Moonstone',
+    variety: 'Orthoclase Feldspar',
+    scientificName: 'Potassium Aluminum Silicate',
+    description: 'A luminescent talisman for intuition, emotional balance, and honoring lunar cycles.',
+    imageUrl: '',
+    keywords: ['intuition', 'cycles', 'feminine'],
+    intents: ['intuition', 'emotional balance', 'dreams'],
+    colors: ['white', 'peach', 'blue'],
+    chakras: ['Crown', 'Sacral'],
+    zodiacSigns: ['Cancer', 'Scorpio'],
+    elements: ['Water'],
+    metaphysicalProperties: {
+      healing_properties: ['Balances emotions', 'Enhances dreams', 'Supports new beginnings'],
+      primary_chakras: ['Crown', 'Sacral'],
+      zodiac_signs: ['Cancer', 'Scorpio'],
+      elements: ['Water'],
+      affirmations: ['I flow gracefully with life’s cycles.'],
+    },
+    physicalProperties: {
+      composition: 'KAlSi₃O₈',
+      hardness: '6 - 6.5',
+      crystal_system: 'Monoclinic',
+    },
+    careInstructions: {
+      cleansing: ['Moonlight', 'Smoke', 'Sound'],
+      charging: ['Full moon', 'Meditation'],
+      storage: ['Keep separate from harder stones to prevent scratches.'],
+      usage: ['Place under pillow for prophetic dreams.'],
+    },
+    cautions: ['Avoid salt water cleansing.'],
+    identification: {
+      name: 'Moonstone',
+      confidence: 88,
+      variety: 'Orthoclase Feldspar',
+    },
+    properties: ['Intuition', 'Dreams', 'Emotional Balance', 'New Beginnings'],
+  },
+  {
+    id: 'smoky-quartz',
+    name: 'Smoky Quartz',
+    variety: 'Brown Quartz',
+    scientificName: 'Silicon Dioxide',
+    description: 'A grounding ally that transmutes anxiety into centred action.',
+    imageUrl: '',
+    keywords: ['grounding', 'detox', 'calm'],
+    intents: ['grounding', 'stress relief', 'detox'],
+    colors: ['brown', 'grey'],
+    chakras: ['Root'],
+    zodiacSigns: ['Capricorn', 'Sagittarius'],
+    elements: ['Earth'],
+    metaphysicalProperties: {
+      healing_properties: ['Releases fear', 'Anchors scattered energy', 'Supports detoxification'],
+      primary_chakras: ['Root'],
+      zodiac_signs: ['Capricorn', 'Sagittarius'],
+      elements: ['Earth'],
+      affirmations: ['I am grounded, secure, and present.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Smoke', 'Sound', 'Earth burial (brief)'],
+      charging: ['Morning sunlight', 'Visualization'],
+      storage: ['Keep near doorway to filter energy.'],
+      usage: ['Hold during breathwork to release anxiety.'],
+    },
+    cautions: ['Rinse quickly if using water cleansing.'],
+    identification: {
+      name: 'Smoky Quartz',
+      confidence: 86,
+      variety: 'Brown Quartz',
+    },
+    properties: ['Grounding', 'Protection', 'Stress Relief', 'Purification'],
+  },
+  {
+    id: 'carnelian',
+    name: 'Carnelian',
+    variety: 'Chalcedony',
+    scientificName: 'Silicon Dioxide',
+    description: 'A fiery motivator that awakens creativity, courage, and sensual vitality.',
+    imageUrl: '',
+    keywords: ['creativity', 'courage', 'motivation'],
+    intents: ['creativity', 'courage', 'vitality'],
+    colors: ['orange', 'red'],
+    chakras: ['Sacral', 'Solar Plexus'],
+    zodiacSigns: ['Leo', 'Virgo', 'Taurus'],
+    elements: ['Fire'],
+    metaphysicalProperties: {
+      healing_properties: ['Inspires action', 'Boosts confidence', 'Ignites passion'],
+      primary_chakras: ['Sacral', 'Solar Plexus'],
+      zodiac_signs: ['Leo', 'Virgo', 'Taurus'],
+      elements: ['Fire'],
+      affirmations: ['My creativity flows with vibrant confidence.'],
+    },
+    physicalProperties: {
+      composition: 'SiO₂',
+      hardness: '7',
+      crystal_system: 'Trigonal',
+    },
+    careInstructions: {
+      cleansing: ['Smoke', 'Sound', 'Sunlight (gentle)'],
+      charging: ['Sunrise light', 'Movement practices'],
+      storage: ['Keep with creative tools for inspiration.'],
+      usage: ['Hold before presentations for confident expression.'],
+    },
+    cautions: ['Avoid harsh chemicals; rinse with lukewarm water only.'],
+    identification: {
+      name: 'Carnelian',
+      confidence: 87,
+      variety: 'Chalcedony',
+    },
+    properties: ['Creativity', 'Courage', 'Vitality', 'Passion'],
+  },
+];
+
+const CRYSTAL_LOOKUP = new Map();
+CRYSTAL_LIBRARY.forEach((entry) => {
+  CRYSTAL_LOOKUP.set(entry.name.toLowerCase(), entry);
+  if (Array.isArray(entry.aliases)) {
+    entry.aliases.forEach((alias) => {
+      CRYSTAL_LOOKUP.set(alias.toLowerCase(), entry);
+    });
+  }
+});
+
+const CHAKRA_INTENT_MAP = {
+  'root': ['grounding', 'stability', 'protection'],
+  'sacral': ['creativity', 'pleasure', 'emotional balance'],
+  'solar plexus': ['confidence', 'abundance', 'motivation'],
+  'heart': ['love', 'compassion', 'healing'],
+  'throat': ['communication', 'truth', 'expression'],
+  'third eye': ['intuition', 'clarity', 'dreams'],
+  'crown': ['spiritual connection', 'clarity', 'peace'],
+};
+
+const MOON_PHASE_TEMPLATES = {
+  'New Moon': {
+    focus: 'Plant seeds of intention and set clear goals.',
+    energy: 'Initiation',
+    timing: 'First 48 hours after the new moon exact time.',
+    recommendedIntents: ['manifestation', 'clarity', 'new beginnings'],
+    steps: [
+      'Cleanse your space with smoke, sound, or selenite.',
+      'Write three intentions you wish to manifest this lunar cycle.',
+      'Charge a central crystal grid or candle while visualising the outcome.',
+      'Seal with breathwork—inhale possibility, exhale doubt.',
+    ],
+    prompts: [
+      'What am I ready to invite into my life?',
+      'Which habits or thoughts must shift to support these intentions?',
+    ],
+    affirmation: 'I welcome luminous new beginnings.',
+  },
+  'Waxing Crescent': {
+    focus: 'Gather resources, allies, and momentum for your goals.',
+    energy: 'Expansion',
+    timing: 'Days 2-5 of the lunar cycle.',
+    recommendedIntents: ['momentum', 'creativity', 'confidence'],
+    steps: [
+      'Review your intentions and choose a single next aligned action.',
+      'Create a mini altar with crystals supporting courage and focus.',
+      'Spend five minutes in visualization of successful outcomes.',
+    ],
+    prompts: [
+      'What support do I need to stay committed?',
+      'Which inspired action can I take today?',
+    ],
+    affirmation: 'Every aligned action amplifies my manifestation.',
+  },
+  'First Quarter': {
+    focus: 'Overcome obstacles and refine strategy.',
+    energy: 'Perseverance',
+    timing: 'Around day 7 of the cycle.',
+    recommendedIntents: ['confidence', 'clarity', 'grounding'],
+    steps: [
+      'Ground with protective stones and centre your breathing.',
+      'Journal about any resistance and transform it into opportunity.',
+      'Perform a decisive action ritual—write a limiting belief, then transmute it into a power statement.',
+    ],
+    prompts: [
+      'What challenge is surfacing to be resolved?',
+      'How can I adapt while staying loyal to my vision?',
+    ],
+    affirmation: 'I meet every challenge with clarity and courage.',
+  },
+  'Waxing Gibbous': {
+    focus: 'Polish, refine, and align before culmination.',
+    energy: 'Preparation',
+    timing: 'Days 10-13 of the cycle.',
+    recommendedIntents: ['refinement', 'healing', 'harmonising'],
+    steps: [
+      'Meditate with a heart-healing crystal to align motivation with compassion.',
+      'Review intentions and adjust wording for precision.',
+      'Offer gratitude for what is already unfolding.',
+    ],
+    prompts: [
+      'What needs fine-tuning before I step into visibility?',
+      'Where can I soften expectations and trust the process?',
+    ],
+    affirmation: 'My path is refining toward graceful success.',
+  },
+  'Full Moon': {
+    focus: 'Celebrate wins, release what is complete, and charge your field.',
+    energy: 'Illumination',
+    timing: 'Full moon day and the following evening.',
+    recommendedIntents: ['release', 'celebration', 'clarity'],
+    steps: [
+      'Charge crystals and water under the moonlight.',
+      'Write a release list of habits, fears, or patterns to dissolve.',
+      'Practice a gratitude ritual followed by breathwork or sound bath.',
+    ],
+    prompts: [
+      'What have I manifested since the new moon?',
+      'Which stories or fears am I ready to release into moonlight?',
+    ],
+    affirmation: 'I radiate gratitude and release what no longer serves.',
+  },
+  'Waning Gibbous': {
+    focus: 'Integrate lessons and share wisdom.',
+    energy: 'Reflection',
+    timing: 'Days 17-19 of the lunar cycle.',
+    recommendedIntents: ['gratitude', 'teaching', 'service'],
+    steps: [
+      'Journal insights gained during the full moon peak.',
+      'Share gratitude or guidance with someone in your community.',
+      'Cleanse your altar and crystals in preparation for rest.',
+    ],
+    prompts: [
+      'What wisdom am I ready to embody or teach?',
+      'How can I show gratitude through action this week?',
+    ],
+    affirmation: 'My insights ripple outward with grace.',
+  },
+  'Last Quarter': {
+    focus: 'Release, forgive, and create space for rest.',
+    energy: 'Liberation',
+    timing: 'Around day 22 of the cycle.',
+    recommendedIntents: ['release', 'forgiveness', 'rest'],
+    steps: [
+      'Perform a cord-cutting or forgiveness ritual with supportive stones.',
+      'Cleanse your home or workspace to invite renewal.',
+      'Schedule restorative practices for the coming week.',
+    ],
+    prompts: [
+      'Who or what am I ready to forgive—myself included?',
+      'What boundaries support my energetic wellbeing?',
+    ],
+    affirmation: 'I release with love and honour the space created.',
+  },
+  'Waning Crescent': {
+    focus: 'Rest, dream, and listen for inner guidance.',
+    energy: 'Surrender',
+    timing: 'Final days before the next new moon.',
+    recommendedIntents: ['rest', 'dreamwork', 'intuition'],
+    steps: [
+      'Slow your schedule and embrace restorative sleep.',
+      'Keep a dream journal by your bed for moonlit messages.',
+      'Meditate with calming crystals to prepare for the next cycle.',
+    ],
+    prompts: [
+      'What does my body and spirit need for renewal?',
+      'What intuitive nudges are whispering for my attention?',
+    ],
+    affirmation: 'In stillness I gather luminous insight.',
+  },
+};
+
+function normalizeValue(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function getCrystalByName(name) {
+  if (!name) {
+    return null;
+  }
+  const normalized = normalizeValue(name);
+  if (!normalized) {
+    return null;
+  }
+  return CRYSTAL_LOOKUP.get(normalized) || null;
+}
+
+function toCrystalResponse(entry) {
+  if (!entry) return null;
+  return {
+    id: entry.id,
+    name: entry.name,
+    scientificName: entry.scientificName,
+    imageUrl: entry.imageUrl || '',
+    description: entry.description,
+    metaphysicalProperties: entry.metaphysicalProperties,
+    physicalProperties: entry.physicalProperties,
+    careInstructions: entry.careInstructions,
+    healingProperties: entry.metaphysicalProperties?.healing_properties || [],
+    chakras: entry.metaphysicalProperties?.primary_chakras || [],
+    zodiacSigns: entry.metaphysicalProperties?.zodiac_signs || [],
+    elements: entry.metaphysicalProperties?.elements || [],
+    properties: entry.properties || [],
+    intents: entry.intents || [],
+    identification: entry.identification,
+  };
+}
+
+function selectCrystalsByIntent(intent, { limit = 3, exclude = [] } = {}) {
+  const normalizedIntent = normalizeValue(intent);
+  const excluded = new Set(exclude.map((value) => normalizeValue(value)));
+  const relatedKeywords = new Set();
+  if (normalizedIntent) {
+    relatedKeywords.add(normalizedIntent);
+    const mapped = CHAKRA_INTENT_MAP[normalizedIntent];
+    if (Array.isArray(mapped)) {
+      mapped.forEach((term) => relatedKeywords.add(term.toLowerCase()));
+    }
+  }
+
+  const matches = CRYSTAL_LIBRARY.filter((entry) => {
+    if (excluded.has(entry.id) || excluded.has(entry.name.toLowerCase())) {
+      return false;
+    }
+    if (!normalizedIntent) {
+      return true;
+    }
+    const pool = new Set([
+      ...(entry.intents || []),
+      ...(entry.keywords || []),
+      ...((entry.metaphysicalProperties?.healing_properties || []).map((prop) => prop.toLowerCase())),
+    ].map((value) => value.toLowerCase()));
+    for (const keyword of relatedKeywords) {
+      if (pool.has(keyword)) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  if (matches.length === 0) {
+    return CRYSTAL_LIBRARY.filter((entry) => !excluded.has(entry.id)).slice(0, limit);
+  }
+
+  return matches.slice(0, limit);
+}
+
+function normalizePhaseName(phase) {
+  const value = normalizeValue(phase);
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .replace(/moon/g, '')
+    .replace(/phase/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const mapping = {
+    'new': 'New Moon',
+    'waxing crescent': 'Waxing Crescent',
+    'first quarter': 'First Quarter',
+    'waxing gibbous': 'Waxing Gibbous',
+    'full': 'Full Moon',
+    'waning gibbous': 'Waning Gibbous',
+    'last quarter': 'Last Quarter',
+    'third quarter': 'Last Quarter',
+    'waning crescent': 'Waning Crescent',
+  };
+
+  return mapping[normalized] || null;
+}
+
+function calculateMoonPhase() {
+  const now = new Date();
+  const knownNewMoon = new Date('2024-01-11T11:57:00Z');
+  const lunarCycle = 29.530589;
+
+  const daysSince = (now.getTime() - knownNewMoon.getTime()) / (1000 * 60 * 60 * 24);
+  const currentCycle = (daysSince % lunarCycle) / lunarCycle;
+
+  let phase = 'New Moon';
+  if (currentCycle < 0.0625) {
+    phase = 'New Moon';
+  } else if (currentCycle < 0.1875) {
+    phase = 'Waxing Crescent';
+  } else if (currentCycle < 0.3125) {
+    phase = 'First Quarter';
+  } else if (currentCycle < 0.4375) {
+    phase = 'Waxing Gibbous';
+  } else if (currentCycle < 0.5625) {
+    phase = 'Full Moon';
+  } else if (currentCycle < 0.6875) {
+    phase = 'Waning Gibbous';
+  } else if (currentCycle < 0.8125) {
+    phase = 'Last Quarter';
+  } else {
+    phase = 'Waning Crescent';
+  }
+
+  const illumination = Math.round(Math.sin(currentCycle * Math.PI) * 100) / 100;
+
+  return {
+    phase,
+    illumination: Math.max(0, Math.min(1, Math.abs(illumination))),
+    timestamp: now.toISOString(),
+    emoji: phase.includes('Full')
+      ? '🌕'
+      : phase.includes('New')
+        ? '🌑'
+        : phase.includes('Waxing')
+          ? '🌔'
+          : '🌘',
+    cycleFraction: currentCycle,
+    nextFullMoon: calculateNextPhase(0.5, currentCycle, now, lunarCycle),
+    nextNewMoon: calculateNextPhase(0.0, currentCycle, now, lunarCycle),
+  };
+}
+
+function calculateNextPhase(targetPhaseFraction, currentPhaseFraction, now, lunarCycle) {
+  let daysUntil;
+  if (targetPhaseFraction >= currentPhaseFraction) {
+    daysUntil = (targetPhaseFraction - currentPhaseFraction) * lunarCycle;
+  } else {
+    daysUntil = (1 - currentPhaseFraction + targetPhaseFraction) * lunarCycle;
+  }
+  return new Date(now.getTime() + (daysUntil * 24 * 60 * 60 * 1000)).toISOString();
+}
+
+function toDailyCrystalPayload(entry) {
+  return {
+    name: entry.name,
+    description: entry.description,
+    properties: entry.properties || [],
+    metaphysical_properties: entry.metaphysicalProperties,
+    identification: entry.identification,
+  };
+}
+
 function resolvePlanDetails(tier) {
   const normalized = (tier || 'free').toString().trim().toLowerCase();
   const key = PLAN_DETAILS[normalized] ? normalized : PLAN_ALIASES[normalized] || 'free';
@@ -424,6 +1168,287 @@ exports.finalizeStripeCheckoutSession = onCall(
   }
 );
 
+exports.createListing = onCall(
+  { cors: true, timeoutSeconds: 25 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to create a marketplace listing.');
+    }
+
+    const title = typeof request.data?.title === 'string' ? request.data.title.trim() : '';
+    const description = typeof request.data?.description === 'string' ? request.data.description.trim() : '';
+    const category = typeof request.data?.category === 'string' ? request.data.category.trim() : 'general';
+    const imageUrl = typeof request.data?.imageUrl === 'string' ? request.data.imageUrl.trim() : '';
+    const crystalId = typeof request.data?.crystalId === 'string' ? request.data.crystalId.trim() : '';
+    const priceInput = request.data?.priceCents ?? request.data?.price ?? 0;
+    const priceCents = Number(priceInput);
+    const currency = typeof request.data?.currency === 'string' ? request.data.currency.trim().toLowerCase() : 'usd';
+    const quantityRaw = Number(request.data?.quantity || 1);
+    const quantity = Number.isInteger(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+
+    if (!title) {
+      throw new HttpsError('invalid-argument', 'title is required.');
+    }
+    if (!Number.isInteger(priceCents) || priceCents <= 0) {
+      throw new HttpsError('invalid-argument', 'priceCents must be a positive integer.');
+    }
+
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const keywords = [title.toLowerCase(), category.toLowerCase(), ...(Array.isArray(request.data?.tags) ? request.data.tags : [])]
+      .map((value) => value.toString().toLowerCase())
+      .slice(0, 10);
+
+    const sellerSnapshot = await db.collection('marketplace')
+      .where('sellerId', '==', request.auth.uid)
+      .orderBy('createdAt', 'desc')
+      .limit(25)
+      .get();
+
+    let activeOrPending = 0;
+    let mostRecentSubmission = null;
+    sellerSnapshot.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      if (['active', 'pending_review'].includes((data.status || '').toString())) {
+        activeOrPending += 1;
+      }
+      const createdAt = data.createdAt instanceof Timestamp
+        ? data.createdAt.toDate()
+        : null;
+      if (createdAt && (!mostRecentSubmission || createdAt > mostRecentSubmission)) {
+        mostRecentSubmission = createdAt;
+      }
+    });
+
+    if (activeOrPending >= 5) {
+      throw new HttpsError(
+        'failed-precondition',
+        'You already have five active or pending listings. Archive one before submitting another.'
+      );
+    }
+
+    if (mostRecentSubmission) {
+      const hoursSinceLast = (Date.now() - mostRecentSubmission.getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLast < 12) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Marketplace submissions are limited to one every 12 hours. Please try again later.'
+        );
+      }
+    }
+
+    const listingRef = await db.collection('marketplace').add({
+      title,
+      description,
+      priceCents,
+      priceCurrency: currency || 'usd',
+      category: category || 'general',
+      sellerId: request.auth.uid,
+      sellerName: request.auth.token?.name || request.auth.token?.email || null,
+      sellerDisplayName: request.auth.token?.name || request.auth.token?.email || null,
+      crystalId: crystalId || slug,
+      imageUrl: imageUrl || null,
+      quantity,
+      status: 'pending_review',
+      searchKeywords: keywords,
+      shipping: typeof request.data?.shipping === 'object' ? request.data.shipping || {} : {},
+      moderation: {
+        status: 'pending',
+        submittedAt: FieldValue.serverTimestamp(),
+        reviewedAt: null,
+        reviewerId: null,
+        submittedBy: request.auth.uid,
+        notes: null,
+      },
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      listingId: listingRef.id,
+      status: 'pending_review',
+    };
+  }
+);
+
+exports.reviewListing = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to moderate marketplace listings.');
+    }
+
+    const claims = request.auth.token || {};
+    const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    const isAdmin =
+      claims.role === 'admin' ||
+      claims.admin === true ||
+      roles.includes('admin');
+
+    if (!isAdmin) {
+      throw new HttpsError('permission-denied', 'Moderator permissions required.');
+    }
+
+    const listingId = typeof request.data?.listingId === 'string' ? request.data.listingId.trim() : '';
+    const action = typeof request.data?.action === 'string' ? request.data.action.trim().toLowerCase() : '';
+    const notesRaw = typeof request.data?.notes === 'string' ? request.data.notes.trim() : '';
+
+    if (!listingId) {
+      throw new HttpsError('invalid-argument', 'listingId is required.');
+    }
+    if (!['approve', 'reject'].includes(action)) {
+      throw new HttpsError('invalid-argument', 'action must be "approve" or "reject".');
+    }
+    if (notesRaw.length > 500) {
+      throw new HttpsError('invalid-argument', 'notes must be 500 characters or fewer.');
+    }
+
+    const listingRef = db.collection('marketplace').doc(listingId);
+    const snapshot = await listingRef.get();
+
+    if (!snapshot.exists) {
+      throw new HttpsError('not-found', 'Marketplace listing not found.');
+    }
+
+    const listing = snapshot.data() || {};
+    const currentStatus = (listing.status || '').toString();
+
+    if (action === 'approve' && currentStatus === 'active') {
+      return { listingId, status: 'active' };
+    }
+    if (action === 'reject' && currentStatus === 'rejected') {
+      return { listingId, status: 'rejected' };
+    }
+    if (currentStatus !== 'pending_review' && action === 'approve') {
+      throw new HttpsError('failed-precondition', 'Only pending listings can be approved.');
+    }
+
+    const reviewStatus = action === 'approve' ? 'approved' : 'rejected';
+    const nextStatus = action === 'approve' ? 'active' : 'rejected';
+    const reviewNotes = notesRaw.length > 0 ? notesRaw : null;
+    const serverTimestamp = FieldValue.serverTimestamp();
+    const reviewEntry = {
+      reviewerId: request.auth.uid,
+      decision: reviewStatus,
+      notes: reviewNotes,
+      reviewedAt: Timestamp.now(),
+    };
+
+    const moderationState = {
+      ...(listing.moderation || {}),
+      status: reviewStatus,
+      reviewerId: request.auth.uid,
+      reviewedAt: serverTimestamp,
+      notes: reviewNotes,
+    };
+
+    if (action === 'approve') {
+      moderationState.approvedAt = serverTimestamp;
+    } else {
+      moderationState.rejectedAt = serverTimestamp;
+    }
+
+    await listingRef.update({
+      status: nextStatus,
+      moderation: moderationState,
+      moderationHistory: FieldValue.arrayUnion([reviewEntry]),
+      updatedAt: serverTimestamp,
+      activatedAt: action === 'approve' ? serverTimestamp : listing.activatedAt || null,
+      rejectionReason: action === 'reject' ? reviewNotes : FieldValue.delete(),
+    });
+
+    return {
+      listingId,
+      status: nextStatus,
+      moderation: {
+        status: reviewStatus,
+        notes: reviewNotes,
+      },
+    };
+  }
+);
+
+exports.processPayment = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    ensureStripeConfigured();
+
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to process payments.');
+    }
+
+    const listingId = typeof request.data?.listingId === 'string' ? request.data.listingId.trim() : '';
+    const amountCents = Number(request.data?.amountCents ?? request.data?.amount);
+    const currency = typeof request.data?.currency === 'string' ? request.data.currency.trim().toLowerCase() : 'usd';
+    const paymentMethodId = typeof request.data?.paymentMethodId === 'string' ? request.data.paymentMethodId.trim() : null;
+    const customerEmail = typeof request.data?.email === 'string' ? request.data.email.trim() : null;
+
+    if (!listingId) {
+      throw new HttpsError('invalid-argument', 'listingId is required.');
+    }
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      throw new HttpsError('invalid-argument', 'amountCents must be a positive integer.');
+    }
+
+    const listingSnap = await db.collection('marketplace').doc(listingId).get();
+    if (!listingSnap.exists) {
+      throw new HttpsError('not-found', 'Marketplace listing not found.');
+    }
+
+    const listing = listingSnap.data() || {};
+    if (listing.priceCents && Number(listing.priceCents) !== amountCents) {
+      throw new HttpsError('failed-precondition', 'Payment amount does not match the listing price.');
+    }
+
+    try {
+      const paymentIntentParams = {
+        amount: amountCents,
+        currency: currency || 'usd',
+        metadata: {
+          uid: request.auth.uid,
+          listingId,
+        },
+        automatic_payment_methods: { enabled: !paymentMethodId },
+      };
+
+      if (paymentMethodId) {
+        paymentIntentParams.payment_method = paymentMethodId;
+        paymentIntentParams.confirm = true;
+        paymentIntentParams.confirmation_method = 'manual';
+      }
+
+      if (customerEmail) {
+        paymentIntentParams.receipt_email = customerEmail;
+      }
+
+      const intent = await stripeClient.paymentIntents.create(paymentIntentParams);
+
+      await db.collection('marketplace')
+        .doc(listingId)
+        .collection('payments')
+        .doc(intent.id)
+        .set({
+          uid: request.auth.uid,
+          amountCents,
+          currency: currency || 'usd',
+          status: intent.status,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+      return {
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret,
+        status: intent.status,
+      };
+    } catch (error) {
+      console.error('❌ processPayment error:', error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError('internal', error.message || 'Failed to process payment.');
+    }
+  }
+);
+
 // Crystal identification function - requires authentication
 exports.identifyCrystal = onCall(
   { cors: true, memory: '1GiB', timeoutSeconds: 60 },
@@ -718,6 +1743,838 @@ exports.getCrystalGuidance = onCall(
     } catch (error) {
       console.error('❌ Crystal guidance error:', error);
       throw new HttpsError('internal', `Guidance failed: ${error.message}`);
+    }
+  }
+);
+
+exports.getCrystalRecommendations = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to receive crystal recommendations.');
+    }
+
+    const needInput = request.data?.need;
+    if (typeof needInput !== 'string' || needInput.trim().length === 0) {
+      throw new HttpsError('invalid-argument', 'A need or intention description is required.');
+    }
+
+    const need = needInput.trim();
+    const normalizedNeed = normalizeValue(need);
+    const userProfile = typeof request.data?.userProfile === 'object' ? request.data.userProfile || {} : {};
+
+    const keywords = normalizedNeed.split(/[^a-z0-9]+/).filter((token) => token);
+    const profileIntentions = Array.isArray(userProfile.intentions)
+      ? userProfile.intentions.map((value) => normalizeValue(value)).filter(Boolean)
+      : [];
+    const chakraFocus = Array.isArray(userProfile.chakraFocus || userProfile.focusChakras)
+      ? (userProfile.chakraFocus || userProfile.focusChakras).map((value) => normalizeValue(value)).filter(Boolean)
+      : [];
+    const emotionalTone = normalizeValue(userProfile.emotion || userProfile.mood || '');
+    const zodiacPreference = normalizeValue(
+      userProfile.zodiacSign ||
+      userProfile.sunSign ||
+      (userProfile.zodiacProfile && userProfile.zodiacProfile.sun) ||
+      (userProfile.birthChart && userProfile.birthChart.sun)
+    );
+
+    const combinedKeywords = new Set([...keywords, ...profileIntentions]);
+    if (normalizedNeed.includes('stress') || normalizedNeed.includes('anx')) {
+      combinedKeywords.add('calm');
+    }
+    if (normalizedNeed.includes('love') || normalizedNeed.includes('relationship')) {
+      combinedKeywords.add('love');
+    }
+    if (normalizedNeed.includes('sleep')) {
+      combinedKeywords.add('sleep');
+      combinedKeywords.add('dreams');
+    }
+    if (normalizedNeed.includes('abundance') || normalizedNeed.includes('money')) {
+      combinedKeywords.add('abundance');
+      combinedKeywords.add('success');
+    }
+
+    const scored = CRYSTAL_LIBRARY.map((entry) => {
+      let score = 0;
+      const reasons = new Set();
+
+      const entryIntents = new Set((entry.intents || []).map((value) => value.toLowerCase()));
+      const entryKeywords = new Set((entry.keywords || []).map((value) => value.toLowerCase()));
+      const healingProperties = new Set(
+        (entry.metaphysicalProperties?.healing_properties || []).map((value) => value.toLowerCase())
+      );
+      const entryChakras = new Set(
+        (entry.metaphysicalProperties?.primary_chakras || []).map((value) => value.toLowerCase())
+      );
+      const entryZodiac = new Set(
+        (entry.metaphysicalProperties?.zodiac_signs || []).map((value) => value.toLowerCase())
+      );
+
+      combinedKeywords.forEach((keyword) => {
+        if (entryIntents.has(keyword) || entryKeywords.has(keyword) || healingProperties.has(keyword)) {
+          score += 4;
+          reasons.add(`Resonates with ${keyword}`);
+        }
+      });
+
+      chakraFocus.forEach((chakra) => {
+        if (entryChakras.has(chakra)) {
+          score += 3;
+          reasons.add(`Supports your ${chakra} chakra focus`);
+        }
+      });
+
+      if (zodiacPreference && entryZodiac.has(zodiacPreference)) {
+        score += 2;
+        reasons.add(`Harmonises with your sun sign ${userProfile.zodiacSign || userProfile.sunSign || userProfile.zodiacProfile?.sun || ''}`);
+      }
+
+      if (emotionalTone && (healingProperties.has(emotionalTone) || entryKeywords.has(emotionalTone))) {
+        score += 2;
+        reasons.add(`Balances emotional tone of ${emotionalTone}`);
+      }
+
+      if (normalizedNeed.includes(entry.name.toLowerCase())) {
+        score += 5;
+        reasons.add('Specifically mentioned in your request.');
+      }
+
+      return {
+        entry,
+        score,
+        reasons: Array.from(reasons),
+      };
+    });
+
+    scored.sort((a, b) => {
+      if (b.score === a.score) {
+        return a.entry.name.localeCompare(b.entry.name);
+      }
+      return b.score - a.score;
+    });
+
+    let recommendations = scored.filter((item) => item.score > 0).slice(0, 3);
+    if (recommendations.length < 3) {
+      const additional = scored
+        .filter((item) => !recommendations.includes(item))
+        .slice(0, 3 - recommendations.length);
+      recommendations = recommendations.concat(additional);
+    }
+
+    const payload = recommendations.map((item, index) => {
+      const base = toCrystalResponse(item.entry);
+      const reasonText = item.reasons.length
+        ? Array.from(new Set(item.reasons)).join(' • ')
+        : 'A versatile ally suited to many intentions.';
+      return {
+        ...base,
+        score: item.score,
+        priority: index + 1,
+        reason: reasonText,
+      };
+    });
+
+    return {
+      need,
+      total: payload.length,
+      recommendations: payload,
+    };
+  }
+);
+
+exports.generateHealingLayout = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to request a healing layout.');
+    }
+
+    const availableCrystals = Array.isArray(request.data?.availableCrystals)
+      ? request.data.availableCrystals
+      : [];
+    const targetChakras = Array.isArray(request.data?.targetChakras) && request.data.targetChakras.length > 0
+      ? request.data.targetChakras
+      : ['Full Alignment'];
+    const intention = typeof request.data?.intention === 'string' && request.data.intention.trim().length > 0
+      ? request.data.intention.trim()
+      : 'Holistic balance';
+
+    const placements = [];
+    const usedIds = new Set();
+    const supplemental = new Set();
+
+    targetChakras.forEach((chakraRaw) => {
+      const chakra = chakraRaw || 'Alignment';
+      const normalizedChakra = normalizeValue(chakra);
+      let selection = null;
+
+      for (const crystalName of availableCrystals) {
+        const entry = getCrystalByName(crystalName);
+        if (!entry || usedIds.has(entry.id)) {
+          continue;
+        }
+        const entryChakras = (entry.metaphysicalProperties?.primary_chakras || []).map((value) => value.toLowerCase());
+        if (entryChakras.includes(normalizedChakra)) {
+          selection = entry;
+          break;
+        }
+      }
+
+      if (!selection) {
+        const mappedIntents = CHAKRA_INTENT_MAP[normalizedChakra] || [];
+        const searchIntent = mappedIntents.length ? mappedIntents[0] : normalizedChakra;
+        const candidates = selectCrystalsByIntent(searchIntent, { limit: 1, exclude: Array.from(usedIds) });
+        selection = candidates.length ? candidates[0] : CRYSTAL_LIBRARY[0];
+      }
+
+      usedIds.add(selection.id);
+      supplemental.add(selection.name);
+
+      const healingFocus = (selection.metaphysicalProperties?.healing_properties || []).slice(0, 2);
+      placements.push({
+        chakra,
+        crystal: selection.name,
+        crystalId: selection.id,
+        focus: healingFocus,
+        instructions: `Place ${selection.name} on the ${chakra} centre for 7 deep breaths, visualising ${healingFocus.join(' and ') || 'balanced energy'}.`,
+      });
+    });
+
+    const breathwork = {
+      technique: '4-7-8 Breath',
+      description: 'Inhale for 4 counts, hold for 7, and exhale for 8 to settle energy between placements.',
+    };
+
+    const integration = [
+      'Journal three sensations or insights after completing the layout.',
+      'Drink charged water infused with clear quartz or selenite.',
+      'Stretch gently and close with gratitude to seal the work.',
+    ];
+
+    await db.collection('users')
+      .doc(request.auth.uid)
+      .collection('healing_sessions')
+      .add({
+        intention,
+        targetChakras,
+        availableCrystals,
+        placements: placements.map((placement) => ({
+          chakra: placement.chakra,
+          crystal: placement.crystal,
+        })),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+    return {
+      layout: {
+        intention,
+        durationMinutes: 20 + (targetChakras.length * 5),
+        placements,
+        breathwork,
+        integration,
+        affirmation: `I align my energy for ${intention.toLowerCase()}.`,
+      },
+      suggestedCrystals: Array.from(supplemental),
+    };
+  }
+);
+
+exports.getMoonRituals = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to receive moon ritual guidance.');
+    }
+
+    const requestedPhase = typeof request.data?.moonPhase === 'string' ? request.data.moonPhase : '';
+    const userCrystals = Array.isArray(request.data?.userCrystals) ? request.data.userCrystals : [];
+    const userProfile = typeof request.data?.userProfile === 'object' ? request.data.userProfile || {} : {};
+    const personalIntention = typeof request.data?.intention === 'string' && request.data.intention.trim().length > 0
+      ? request.data.intention.trim()
+      : null;
+
+    const moonData = calculateMoonPhase();
+    const resolvedPhase = normalizePhaseName(requestedPhase) || moonData.phase;
+    const template = MOON_PHASE_TEMPLATES[resolvedPhase] || MOON_PHASE_TEMPLATES[moonData.phase];
+
+    const recommended = [];
+    const used = new Set();
+
+    userCrystals.forEach((name) => {
+      const entry = getCrystalByName(name);
+      if (entry && !used.has(entry.id)) {
+        recommended.push(toCrystalResponse(entry));
+        used.add(entry.id);
+      }
+    });
+
+    const recommendationIntents = template?.recommendedIntents || [];
+    recommendationIntents.forEach((intent) => {
+      const matches = selectCrystalsByIntent(intent, { limit: 1, exclude: Array.from(used) });
+      matches.forEach((entry) => {
+        if (!used.has(entry.id)) {
+          recommended.push(toCrystalResponse(entry));
+          used.add(entry.id);
+        }
+      });
+    });
+
+    if (recommended.length === 0) {
+      const fallback = CRYSTAL_LIBRARY.slice(0, 3);
+      fallback.forEach((entry) => {
+        recommended.push(toCrystalResponse(entry));
+        used.add(entry.id);
+      });
+    }
+
+    let ritualNarrative = null;
+    if (config().gemini?.api_key) {
+      try {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(config().gemini.api_key);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const prompt = `You are a crystal priestess crafting a ${resolvedPhase} moon ritual. Phase focus: ${template?.focus}.` +
+          ` User crystals: ${userCrystals.join(', ') || 'none specified'}.` +
+          ` Personal intention: ${personalIntention || 'follow the phase focus'}.` +
+          ' Provide a poetic paragraph (120-160 words) guiding them through the ritual, including atmosphere, crystal placement, and closing gratitude.';
+        const response = await model.generateContent([prompt]);
+        ritualNarrative = response.response.text();
+      } catch (error) {
+        console.warn('⚠️ Gemini narrative generation failed:', error.message);
+      }
+    }
+
+    await db.collection('moonData').doc('current').set({
+      phase: resolvedPhase,
+      lastQueriedAt: FieldValue.serverTimestamp(),
+      lastQueriedBy: request.auth.uid,
+      illumination: moonData.illumination,
+      nextFullMoon: moonData.nextFullMoon,
+      nextNewMoon: moonData.nextNewMoon,
+    }, { merge: true });
+
+    await db.collection('users')
+      .doc(request.auth.uid)
+      .collection('rituals')
+      .add({
+        phase: resolvedPhase,
+        intention: personalIntention || template?.focus || '',
+        recommendedCrystals: recommended.map((item) => item?.name).filter(Boolean),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+    return {
+      moonData: {
+        phase: resolvedPhase,
+        emoji: moonData.emoji,
+        illumination: moonData.illumination,
+        timestamp: moonData.timestamp,
+        nextFullMoon: moonData.nextFullMoon,
+        nextNewMoon: moonData.nextNewMoon,
+      },
+      ritual: {
+        focus: template?.focus || 'Attune to lunar wisdom',
+        energy: template?.energy || 'Reflection',
+        timing: template?.timing || 'Anytime under the moon',
+        steps: template?.steps || [],
+        journalingPrompts: template?.prompts || [],
+        affirmation: template?.affirmation || 'I honour the wisdom of the moon.',
+        narrative: ritualNarrative,
+        intention: personalIntention || template?.focus || 'Lunar alignment',
+        recommendedCrystals: recommended,
+      },
+      userCrystals,
+    };
+  }
+);
+
+exports.checkCrystalCompatibility = onCall(
+  { cors: true, timeoutSeconds: 25 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to analyse crystal compatibility.');
+    }
+
+    const crystalNames = Array.isArray(request.data?.crystalNames)
+      ? request.data.crystalNames
+      : [];
+    if (crystalNames.length === 0) {
+      throw new HttpsError('invalid-argument', 'Provide at least one crystal name.');
+    }
+
+    const providedProfile = typeof request.data?.userProfile === 'object' && request.data.userProfile
+      ? { ...request.data.userProfile }
+      : {};
+
+    const collectIntentions = [];
+    const visitedIntentionSources = new WeakSet();
+    const addCandidate = (value) => {
+      if (typeof value !== 'string') {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (!collectIntentions.includes(trimmed)) {
+        collectIntentions.push(trimmed);
+      }
+    };
+
+    const addFromList = (list) => {
+      if (!Array.isArray(list)) {
+        return;
+      }
+      list.forEach((item) => {
+        if (typeof item === 'string') {
+          addCandidate(item);
+        } else if (item && typeof item === 'object') {
+          if (typeof item.intention === 'string') {
+            addCandidate(item.intention);
+          }
+          if (typeof item.focus === 'string') {
+            addCandidate(item.focus);
+          }
+          if (typeof item.name === 'string') {
+            addCandidate(item.name);
+          }
+        }
+      });
+    };
+
+    const harvestIntentions = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      if (visitedIntentionSources.has(payload)) {
+        return;
+      }
+      visitedIntentionSources.add(payload);
+      addCandidate(payload.primaryIntention || payload.primary_intention);
+      addCandidate(payload.focusIntention || payload.focus_intention);
+      addCandidate(payload.currentIntention || payload.current_intention);
+      addCandidate(payload.intention || payload.focus);
+      addFromList(payload.intentions);
+      addFromList(payload.focusIntentions || payload.focus_intentions);
+      addFromList(payload.intentionHistory || payload.intention_history);
+      if (payload.preferences) {
+        harvestIntentions(payload.preferences);
+      }
+      if (payload.settings) {
+        harvestIntentions(payload.settings);
+      }
+    };
+
+    harvestIntentions(providedProfile);
+
+    const rawPurpose = typeof request.data?.purpose === 'string' ? request.data.purpose.trim() : '';
+
+    if (!rawPurpose && request.auth) {
+      if (collectIntentions.length === 0) {
+        try {
+          const profileSnapshot = await db.collection('users').doc(request.auth.uid).get();
+          if (profileSnapshot.exists) {
+            const profileData = profileSnapshot.data() || {};
+            harvestIntentions(profileData);
+          }
+        } catch (error) {
+          console.warn('⚠️ Unable to resolve user profile intentions for compatibility:', error.message);
+        }
+      }
+
+      if (collectIntentions.length === 0) {
+        try {
+          const moonPreferenceSnapshot = await db
+            .collection('users')
+            .doc(request.auth.uid)
+            .collection('ritual_preferences')
+            .doc('moon')
+            .get();
+          if (moonPreferenceSnapshot.exists) {
+            const moonData = moonPreferenceSnapshot.data() || {};
+            if (typeof moonData.intention === 'string') {
+              addCandidate(moonData.intention);
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Unable to resolve moon ritual intention for compatibility:', error.message);
+        }
+      }
+    }
+
+    const derivedPurpose = rawPurpose || collectIntentions[0] || '';
+    const purpose = derivedPurpose;
+    const analyzed = [];
+    const missing = [];
+
+    crystalNames.forEach((name) => {
+      const entry = getCrystalByName(name);
+      if (entry) {
+        analyzed.push({ name, entry });
+      } else {
+        missing.push(name);
+      }
+    });
+
+    if (analyzed.length === 0) {
+      return {
+        score: 0,
+        synergies: [],
+        cautions: [],
+        recommendedAdditions: [],
+        missing,
+        purpose,
+      };
+    }
+
+    let scoreTotal = 0;
+    let comparisons = 0;
+    const synergyInsights = [];
+    const cautionaryNotes = [];
+    const chakraFrequency = new Map();
+    const elementFrequency = new Map();
+
+    const toSet = (list) => new Set((list || []).map((value) => value.toLowerCase()));
+
+    for (let i = 0; i < analyzed.length; i += 1) {
+      const first = analyzed[i];
+      const firstEntry = first.entry;
+      const firstChakras = toSet(firstEntry.metaphysicalProperties?.primary_chakras);
+      const firstElements = toSet(firstEntry.metaphysicalProperties?.elements);
+
+      firstChakras.forEach((chakra) => {
+        chakraFrequency.set(chakra, (chakraFrequency.get(chakra) || 0) + 1);
+      });
+      firstElements.forEach((element) => {
+        elementFrequency.set(element, (elementFrequency.get(element) || 0) + 1);
+      });
+
+      for (let j = i + 1; j < analyzed.length; j += 1) {
+        const second = analyzed[j];
+        const secondEntry = second.entry;
+        const secondChakras = toSet(secondEntry.metaphysicalProperties?.primary_chakras);
+        const secondElements = toSet(secondEntry.metaphysicalProperties?.elements);
+
+        comparisons += 1;
+        let pairScore = 55; // neutral baseline
+
+        const sharedChakras = [...firstChakras].filter((chakra) => secondChakras.has(chakra));
+        const sharedElements = [...firstElements].filter((element) => secondElements.has(element));
+
+        if (sharedChakras.length > 0) {
+          pairScore += sharedChakras.length * 10;
+          synergyInsights.push(`${first.entry.name} and ${second.entry.name} harmonise through the ${sharedChakras.join(', ')} chakra${sharedChakras.length > 1 ? 's' : ''}.`);
+        }
+
+        if (sharedElements.length > 0) {
+          pairScore += sharedElements.length * 8;
+          synergyInsights.push(`${first.entry.name} and ${second.entry.name} share ${sharedElements.join(' & ')} element energy.`);
+        }
+
+        if (sharedChakras.length === 0 && sharedElements.length === 0) {
+          cautionaryNotes.push(`${first.entry.name} and ${second.entry.name} work on different spectrums—pair with a bridging stone for coherence.`);
+        }
+
+        if (purpose) {
+          const intents = new Set([
+            ...(firstEntry.intents || []),
+            ...(firstEntry.keywords || []),
+            ...(firstEntry.metaphysicalProperties?.healing_properties || []),
+            ...(secondEntry.intents || []),
+            ...(secondEntry.keywords || []),
+            ...(secondEntry.metaphysicalProperties?.healing_properties || []),
+          ].map((value) => value.toLowerCase()));
+          if (intents.has(purpose.toLowerCase())) {
+            pairScore += 6;
+            synergyInsights.push(`${first.entry.name} and ${second.entry.name} both amplify your focus on ${purpose}.`);
+          }
+        }
+
+        if ((firstElements.has('fire') && secondElements.has('water')) || (firstElements.has('water') && secondElements.has('fire'))) {
+          pairScore -= 5;
+          cautionaryNotes.push(`${first.entry.name} and ${second.entry.name} mix opposing fire and water currents—introduce a grounding stone to mediate.`);
+        }
+
+        scoreTotal += Math.max(20, Math.min(100, pairScore));
+      }
+    }
+
+    const averageScore = comparisons > 0 ? Math.round(scoreTotal / comparisons) : 75;
+    const dominantChakra = [...chakraFrequency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const dominantElement = [...elementFrequency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    const additionSuggestions = purpose
+      ? selectCrystalsByIntent(purpose, {
+          limit: 2,
+          exclude: analyzed.map((item) => item.entry.id),
+        })
+      : [];
+
+    return {
+      score: averageScore,
+      synergies: Array.from(new Set(synergyInsights)).slice(0, 6),
+      cautions: Array.from(new Set(cautionaryNotes)).slice(0, 4),
+      recommendedAdditions: additionSuggestions.map((entry) => toCrystalResponse(entry)),
+      analyzedCrystals: analyzed.map((item) => ({
+        name: item.entry.name,
+        intents: item.entry.intents,
+        chakras: item.entry.metaphysicalProperties?.primary_chakras || [],
+        elements: item.entry.metaphysicalProperties?.elements || [],
+      })),
+      dominantChakra,
+      dominantElement,
+      missing,
+      purpose,
+    };
+  }
+);
+
+exports.getCrystalCare = onCall(
+  { cors: true, timeoutSeconds: 20 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to retrieve crystal care information.');
+    }
+
+    const crystalName = typeof request.data?.crystalName === 'string' ? request.data.crystalName.trim() : '';
+    if (!crystalName) {
+      throw new HttpsError('invalid-argument', 'crystalName is required.');
+    }
+
+    const entry = getCrystalByName(crystalName);
+    if (!entry) {
+      return {
+        name: crystalName,
+        care: {
+          cleansing: ['Smoke cleanse or sound bath'],
+          charging: ['Moonlight', 'Visualization'],
+          storage: ['Keep wrapped in a soft cloth until the library entry is available.'],
+          usage: ['Handle gently and note any energetic impressions in your journal.'],
+        },
+        cautions: ['Crystal not yet catalogued—use gentle cleansing and charging methods only.'],
+        recommendedCompanions: [],
+      };
+    }
+
+    const companions = selectCrystalsByIntent(entry.intents?.[0] || '', {
+      limit: 2,
+      exclude: [entry.id],
+    }).map((item) => toCrystalResponse(item));
+
+    return {
+      name: entry.name,
+      care: entry.careInstructions,
+      cautions: entry.cautions || [],
+      cleansing: entry.careInstructions?.cleansing || [],
+      charging: entry.careInstructions?.charging || [],
+      storage: entry.careInstructions?.storage || [],
+      usage: entry.careInstructions?.usage || [],
+      recommendedCompanions: companions,
+    };
+  }
+);
+
+exports.searchCrystals = onCall(
+  { cors: true, timeoutSeconds: 25 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to search the crystal library.');
+    }
+
+    const keyword = typeof request.data?.keyword === 'string' ? request.data.keyword.trim().toLowerCase() : '';
+    const chakra = typeof request.data?.chakra === 'string' ? request.data.chakra.trim().toLowerCase() : '';
+    const zodiac = typeof request.data?.zodiacSign === 'string' ? request.data.zodiacSign.trim().toLowerCase() : '';
+    const healingProperty = typeof request.data?.healingProperty === 'string' ? request.data.healingProperty.trim().toLowerCase() : '';
+    const element = typeof request.data?.element === 'string' ? request.data.element.trim().toLowerCase() : '';
+    const color = typeof request.data?.color === 'string' ? request.data.color.trim().toLowerCase() : '';
+    const intentFilter = typeof request.data?.intent === 'string' ? request.data.intent.trim().toLowerCase() : '';
+    const limitRaw = Number(request.data?.limit || 10);
+    const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 25) : 10;
+
+    const results = CRYSTAL_LIBRARY.filter((entry) => {
+      const entryChakras = (entry.metaphysicalProperties?.primary_chakras || []).map((value) => value.toLowerCase());
+      const entryZodiac = (entry.metaphysicalProperties?.zodiac_signs || []).map((value) => value.toLowerCase());
+      const entryElements = (entry.metaphysicalProperties?.elements || []).map((value) => value.toLowerCase());
+      const entryHealings = (entry.metaphysicalProperties?.healing_properties || []).map((value) => value.toLowerCase());
+      const entryIntents = (entry.intents || []).map((value) => value.toLowerCase());
+      const entryColors = (entry.colors || []).map((value) => value.toLowerCase());
+      const entryKeywords = (entry.keywords || []).map((value) => value.toLowerCase());
+
+      if (chakra && !entryChakras.includes(chakra)) {
+        return false;
+      }
+      if (zodiac && !entryZodiac.includes(zodiac)) {
+        return false;
+      }
+      if (healingProperty && !entryHealings.includes(healingProperty)) {
+        return false;
+      }
+      if (element && !entryElements.includes(element)) {
+        return false;
+      }
+      if (color && !entryColors.includes(color)) {
+        return false;
+      }
+      if (intentFilter && !entryIntents.includes(intentFilter)) {
+        const mapped = CHAKRA_INTENT_MAP[intentFilter];
+        if (!(mapped && mapped.some((value) => entryIntents.includes(value)))) {
+          return false;
+        }
+      }
+
+      if (keyword) {
+        const haystack = [
+          entry.name.toLowerCase(),
+          entry.scientificName?.toLowerCase() || '',
+          entry.description?.toLowerCase() || '',
+          ...entryKeywords,
+          ...entryIntents,
+          ...entryHealings,
+          ...entryElements,
+        ].join(' ');
+        if (!haystack.includes(keyword)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    return {
+      total: results.length,
+      results: results.slice(0, limit).map((entry) => toCrystalResponse(entry)),
+    };
+  }
+);
+
+exports.earnSeerCredits = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to earn Seer Credits.');
+    }
+
+    const action = typeof request.data?.action === 'string' ? request.data.action.trim() : '';
+    const creditsToEarn = Number(request.data?.creditsToEarn);
+    if (!action || !ECONOMY_EARN_RULES[action]) {
+      throw new HttpsError('invalid-argument', 'Unsupported earn action.');
+    }
+    if (!Number.isInteger(creditsToEarn) || creditsToEarn <= 0) {
+      throw new HttpsError('invalid-argument', 'creditsToEarn must be a positive integer.');
+    }
+    if (creditsToEarn !== ECONOMY_EARN_RULES[action]) {
+      throw new HttpsError('invalid-argument', 'creditsToEarn does not match server rules.');
+    }
+
+    const uid = request.auth.uid;
+    const economyRef = db.collection('users').doc(uid).collection('economy').doc('credits');
+
+    try {
+      let updatedState = null;
+      await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(economyRef);
+        const data = snapshot.exists ? snapshot.data() || {} : {};
+
+        let credits = data.credits || 0;
+        let lifetime = data.lifetimeEarned || data.lifetimeCreditsEarned || 0;
+        let dailyEarnCount = data.dailyEarnCount || {};
+        const dailyLimits = { ...ECONOMY_DAILY_LIMITS, ...(data.dailyLimits || {}) };
+
+        const today = new Date().toISOString().split('T')[0];
+        const lastReset = data.lastResetDate || today;
+        if (lastReset !== today) {
+          dailyEarnCount = {};
+        }
+
+        const limit = dailyLimits[action];
+        if (limit && (dailyEarnCount[action] || 0) >= limit) {
+          throw new HttpsError('resource-exhausted', `Daily limit reached for ${action}.`);
+        }
+
+        credits += creditsToEarn;
+        lifetime += creditsToEarn;
+        dailyEarnCount[action] = (dailyEarnCount[action] || 0) + 1;
+
+        transaction.set(economyRef, {
+          credits,
+          lifetimeEarned: lifetime,
+          lifetimeCreditsEarned: lifetime,
+          dailyEarnCount,
+          dailyLimits,
+          lastResetDate: today,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        updatedState = { credits, lifetime, dailyEarnCount };
+      });
+
+      return {
+        success: true,
+        newCredits: updatedState.credits,
+        lifetimeEarned: updatedState.lifetime,
+        dailyEarnCount: updatedState.dailyEarnCount,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      console.error('❌ earnSeerCredits error:', error);
+      throw new HttpsError('internal', 'Failed to earn Seer Credits.');
+    }
+  }
+);
+
+exports.spendSeerCredits = onCall(
+  { cors: true, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to spend Seer Credits.');
+    }
+
+    const action = typeof request.data?.action === 'string' ? request.data.action.trim() : '';
+    const creditsToSpend = Number(request.data?.creditsToSpend);
+    if (!action || !ECONOMY_SPEND_RULES[action]) {
+      throw new HttpsError('invalid-argument', 'Unsupported spend action.');
+    }
+    if (!Number.isInteger(creditsToSpend) || creditsToSpend <= 0) {
+      throw new HttpsError('invalid-argument', 'creditsToSpend must be a positive integer.');
+    }
+    if (creditsToSpend !== ECONOMY_SPEND_RULES[action]) {
+      throw new HttpsError('invalid-argument', 'creditsToSpend does not match server rules.');
+    }
+
+    const uid = request.auth.uid;
+    const economyRef = db.collection('users').doc(uid).collection('economy').doc('credits');
+
+    try {
+      let updatedState = null;
+      await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(economyRef);
+        const data = snapshot.exists ? snapshot.data() || {} : {};
+
+        const credits = data.credits || 0;
+        if (credits < creditsToSpend) {
+          throw new HttpsError('failed-precondition', 'Insufficient Seer Credits.');
+        }
+
+        transaction.set(economyRef, {
+          credits: credits - creditsToSpend,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        updatedState = { credits: credits - creditsToSpend };
+      });
+
+      return {
+        success: true,
+        newCredits: updatedState.credits,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      console.error('❌ spendSeerCredits error:', error);
+      throw new HttpsError('internal', 'Failed to spend Seer Credits.');
     }
   }
 );
@@ -1217,145 +3074,108 @@ exports.getDailyCrystal = onCall({
   cors: true,
   invoker: 'public',
   timeoutSeconds: 60,
-  memory: '256MiB'
+  memory: '256MiB',
 }, async (request) => {
   try {
     console.log('🌅 Getting daily crystal recommendation...');
-    
-    // Array of crystals with detailed properties for daily recommendations
-    const crystalDatabase = [
-      {
-        name: 'Clear Quartz',
-        description: 'The master healer crystal that amplifies energy and intentions. Known as the most versatile healing stone, Clear Quartz can be programmed with any intention and works harmoniously with all other crystals.',
-        properties: ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
-        metaphysical_properties: {
-          healing_properties: ['Amplifies energy', 'Promotes clarity', 'Enhances spiritual growth'],
-          primary_chakras: ['Crown', 'All Chakras'],
-          energy_type: 'amplifying',
-          element: 'air'
-        },
-        identification: {
-          name: 'Clear Quartz',
-          confidence: 95,
-          variety: 'Crystalline Quartz'
-        }
-      },
-      {
-        name: 'Amethyst',
-        description: 'A powerful crystal for spiritual growth, protection, and clarity. Amethyst enhances intuition and promotes peaceful energy while providing protection from negative influences.',
-        properties: ['Spiritual Growth', 'Protection', 'Clarity', 'Peace', 'Intuition'],
-        metaphysical_properties: {
-          healing_properties: ['Enhances intuition', 'Provides protection', 'Promotes spiritual awareness'],
-          primary_chakras: ['Crown', 'Third Eye'],
-          energy_type: 'calming',
-          element: 'air'
-        },
-        identification: {
-          name: 'Amethyst',
-          confidence: 92,
-          variety: 'Purple Quartz'
-        }
-      },
-      {
-        name: 'Rose Quartz',
-        description: 'The stone of unconditional love and infinite peace. Rose Quartz is the most important crystal for healing the heart and heart chakra, teaching the true essence of love.',
-        properties: ['Love', 'Compassion', 'Healing', 'Peace', 'Self-Love'],
-        metaphysical_properties: {
-          healing_properties: ['Opens heart chakra', 'Promotes self-love', 'Attracts love'],
-          primary_chakras: ['Heart'],
-          energy_type: 'loving',
-          element: 'water'
-        },
-        identification: {
-          name: 'Rose Quartz',
-          confidence: 90,
-          variety: 'Pink Quartz'
-        }
-      },
-      {
-        name: 'Black Tourmaline',
-        description: 'A powerful grounding stone that provides protection from negative energies and electromagnetic radiation. Creates a protective shield around the aura.',
-        properties: ['Protection', 'Grounding', 'Purification', 'Deflection', 'Stability'],
-        metaphysical_properties: {
-          healing_properties: ['Provides protection', 'Grounds energy', 'Deflects negativity'],
-          primary_chakras: ['Root'],
-          energy_type: 'grounding',
-          element: 'earth'
-        },
-        identification: {
-          name: 'Black Tourmaline',
-          confidence: 88,
-          variety: 'Schorl'
-        }
-      },
-      {
-        name: 'Citrine',
-        description: 'Known as the merchants stone, Citrine attracts wealth, prosperity, and success. It also promotes joy, enthusiasm, and creativity while dissipating negative energy.',
-        properties: ['Abundance', 'Joy', 'Creativity', 'Success', 'Energy'],
-        metaphysical_properties: {
-          healing_properties: ['Attracts abundance', 'Boosts confidence', 'Enhances creativity'],
-          primary_chakras: ['Solar Plexus', 'Sacral'],
-          energy_type: 'energizing',
-          element: 'fire'
-        },
-        identification: {
-          name: 'Citrine',
-          confidence: 91,
-          variety: 'Yellow Quartz'
-        }
-      },
-      {
-        name: 'Selenite',
-        description: 'A high-vibrational crystal that cleanses and charges other crystals. Selenite connects you to higher realms and promotes mental clarity and spiritual insight.',
-        properties: ['Cleansing', 'Charging', 'Clarity', 'Spiritual Connection', 'Peace'],
-        metaphysical_properties: {
-          healing_properties: ['Cleanses energy', 'Enhances spiritual connection', 'Promotes clarity'],
-          primary_chakras: ['Crown', 'Third Eye'],
-          energy_type: 'cleansing',
-          element: 'air'
-        },
-        identification: {
-          name: 'Selenite',
-          confidence: 89,
-          variety: 'Gypsum'
-        }
-      }
-    ];
-    
-    // Get current date to ensure same crystal per day
+
     const today = new Date();
-    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
-    
-    // Use day of year to select crystal (ensures same crystal for same day)
-    const selectedCrystal = crystalDatabase[dayOfYear % crystalDatabase.length];
-    
-    console.log(`✅ Daily crystal selected: ${selectedCrystal.name}`);
-    
-    return {
-      ...selectedCrystal,
-      date: today.toISOString().split('T')[0], // YYYY-MM-DD format
-      dayOfYear: dayOfYear
+    const startOfYear = new Date(Date.UTC(today.getUTCFullYear(), 0, 0));
+    const dayOfYear = Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24));
+
+    const requestedIntent = normalizeValue(request.data?.intent || request.data?.intention);
+    const requestedChakra = normalizeValue(request.data?.chakra || request.data?.focusChakra);
+    const requestedMood = normalizeValue(request.data?.mood || request.data?.emotion);
+
+    let pool = CRYSTAL_LIBRARY.filter((entry) => entry.highlight);
+    if (pool.length === 0) {
+      pool = [...CRYSTAL_LIBRARY];
+    }
+
+    if (requestedIntent) {
+      const intentMatches = selectCrystalsByIntent(requestedIntent, { limit: CRYSTAL_LIBRARY.length });
+      if (intentMatches.length > 0) {
+        pool = intentMatches;
+      }
+    }
+
+    if (requestedChakra) {
+      const chakraMatches = pool.filter((entry) =>
+        (entry.metaphysicalProperties?.primary_chakras || []).some((chakra) => normalizeValue(chakra) === requestedChakra),
+      );
+      if (chakraMatches.length > 0) {
+        pool = chakraMatches;
+      }
+    }
+
+    if (requestedMood) {
+      const moodMatches = pool.filter((entry) => {
+        const healing = (entry.metaphysicalProperties?.healing_properties || []).map((value) => normalizeValue(value));
+        const keywords = (entry.keywords || []).map((value) => normalizeValue(value));
+        return healing.includes(requestedMood) || keywords.includes(requestedMood);
+      });
+      if (moodMatches.length > 0) {
+        pool = moodMatches;
+      }
+    }
+
+    if (pool.length === 0) {
+      throw new Error('Crystal library is empty after filtering');
+    }
+
+    const selection = pool[dayOfYear % pool.length];
+    const base = toCrystalResponse(selection);
+
+    const moonPhase = calculateMoonPhase();
+    const ritualTemplate = MOON_PHASE_TEMPLATES[moonPhase.phase] || null;
+
+    const response = {
+      ...base,
+      keywords: selection.keywords || [],
+      colors: selection.colors || [],
+      highlight: !!selection.highlight,
+      date: today.toISOString().split('T')[0],
+      dayOfYear,
+      selectionCriteria: {
+        intent: requestedIntent || null,
+        chakra: requestedChakra || null,
+        mood: requestedMood || null,
+      },
+      moonPhase,
+      ritualSuggestion: ritualTemplate
+        ? {
+            phase: moonPhase.phase,
+            focus: ritualTemplate.focus,
+            energy: ritualTemplate.energy,
+            affirmation: ritualTemplate.affirmation,
+            recommendedIntents: ritualTemplate.recommendedIntents,
+          }
+        : null,
     };
-    
+
+    console.log(`✅ Daily crystal selected: ${selection.name} (pool size ${pool.length})`);
+    return response;
   } catch (error) {
     console.error('❌ Error getting daily crystal:', error);
-    
-    // Return fallback crystal if anything goes wrong
-    return {
-      name: 'Clear Quartz',
-      description: 'The master healer crystal that amplifies energy and intentions. Known as the most versatile healing stone, Clear Quartz can be programmed with any intention and works harmoniously with all other crystals.',
-      properties: ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
-      metaphysical_properties: {
-        healing_properties: ['Amplifies energy', 'Promotes clarity', 'Enhances spiritual growth'],
-        primary_chakras: ['Crown', 'All Chakras'],
-      },
-      identification: {
+
+    const fallbackEntry = CRYSTAL_LIBRARY[0];
+    if (!fallbackEntry) {
+      return {
         name: 'Clear Quartz',
-        confidence: 95,
-        variety: 'Crystalline Quartz'
-      },
+        description: 'The master healer crystal that amplifies energy and intentions. Known as the most versatile healing stone.',
+        properties: ['Amplification', 'Healing', 'Clarity', 'Energy', 'Purification'],
+        date: new Date().toISOString().split('T')[0],
+        error: 'Crystal dataset unavailable',
+      };
+    }
+
+    return {
+      ...toCrystalResponse(fallbackEntry),
+      keywords: fallbackEntry.keywords || [],
+      colors: fallbackEntry.colors || [],
+      highlight: !!fallbackEntry.highlight,
       date: new Date().toISOString().split('T')[0],
-      error: 'Fallback crystal provided'
+      error: 'Fallback crystal provided',
     };
   }
 });
