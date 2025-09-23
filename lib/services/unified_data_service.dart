@@ -291,9 +291,64 @@ class UnifiedDataService extends ChangeNotifier {
   
   /// Get recent mood from journal entries
   String _getRecentMood() {
-    if (_journalEntries.isEmpty) return 'neutral';
-    // Would need to implement emotionalState in JournalEntry model
-    return 'neutral'; // Placeholder
+    if (_journalEntries.isEmpty) {
+      return 'Neutral · energy steady';
+    }
+
+    final now = DateTime.now();
+    final recentEntries = <JournalEntry>[];
+
+    for (final entry in _journalEntries) {
+      if (recentEntries.length >= 8) break;
+      final withinFortnight = now.difference(entry.dateTime).inDays <= 14;
+      if (withinFortnight || recentEntries.isEmpty) {
+        recentEntries.add(entry);
+      }
+    }
+
+    if (recentEntries.isEmpty) {
+      recentEntries.add(_journalEntries.first);
+    }
+
+    final moodCounts = <MoodType, int>{};
+    var netEnergyShift = 0;
+    var energyTotal = 0.0;
+
+    for (final entry in recentEntries) {
+      moodCounts[entry.moodAfter] = (moodCounts[entry.moodAfter] ?? 0) + 1;
+      netEnergyShift += entry.energyAfter.level - entry.energyBefore.level;
+      energyTotal += entry.energyAfter.level;
+    }
+
+    MoodType dominantMood = recentEntries.first.moodAfter;
+    var dominantCount = 0;
+    for (final moodEntry in moodCounts.entries) {
+      final count = moodEntry.value;
+      if (count > dominantCount) {
+        dominantMood = moodEntry.key;
+        dominantCount = count;
+      } else if (count == dominantCount) {
+        final currentIndex =
+            recentEntries.indexWhere((entry) => entry.moodAfter == dominantMood);
+        final challengerIndex =
+            recentEntries.indexWhere((entry) => entry.moodAfter == moodEntry.key);
+        if (challengerIndex != -1 &&
+            (currentIndex == -1 || challengerIndex < currentIndex)) {
+          dominantMood = moodEntry.key;
+        }
+      }
+    }
+
+    final averageEnergy =
+        (energyTotal / recentEntries.length).round().clamp(1, 10);
+
+    final trend = netEnergyShift > 1
+        ? 'energy rising'
+        : netEnergyShift < -1
+            ? 'energy dipping'
+            : 'energy steady';
+
+    return '${dominantMood.emoji} ${dominantMood.label} · $trend · avg energy $averageEnergy/10';
   }
   
   /// Get recent activity summary
