@@ -17,6 +17,7 @@ import 'marketplace_screen.dart';
 import 'profile_screen.dart';
 import 'notification_screen.dart';
 import 'help_screen.dart';
+import 'crystal_compatibility_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -205,6 +206,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => CrystalHealingScreen()),
+                        ),
+                      ),
+                      _buildFeatureCard(
+                        title: 'Compatibility',
+                        icon: Icons.auto_awesome,
+                        gradientColors: [AppTheme.holoPink, AppTheme.holoBlue],
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const CrystalCompatibilityScreen()),
                         ),
                       ),
                       _buildFeatureCard(

@@ -4,6 +4,27 @@ import 'dart:convert';
 import 'dart:typed_data';
 import '../models/crystal_model.dart';
 
+List<String> _coerceStringList(dynamic input) {
+  if (input is Iterable) {
+    return input
+        .map((value) => value?.toString() ?? '')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
+  }
+  return const <String>[];
+}
+
+Map<String, dynamic> _coerceMap(dynamic input) {
+  if (input is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(input);
+  }
+  if (input is Map) {
+    return input.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return <String, dynamic>{};
+}
+
 class CrystalService extends ChangeNotifier {
   FirebaseFunctions? _functions;
   FirebaseFunctions get functions => _functions ??= FirebaseFunctions.instance;
@@ -36,37 +57,94 @@ class CrystalService extends ChangeNotifier {
         'includeCare': true,
       });
       
-      final data = result.data as Map<String, dynamic>;
-      
+      final data = result.data is Map
+          ? Map<String, dynamic>.from(result.data as Map)
+          : <String, dynamic>{};
+
+      final identificationRaw = data['identification'];
+      final identification = identificationRaw is Map
+          ? Map<String, dynamic>.from(identificationRaw as Map)
+          : <String, dynamic>{};
+
+      final confidenceRaw = identification['confidence'];
+      if (confidenceRaw != null) {
+        final confidence = confidenceRaw is num
+            ? confidenceRaw.toDouble()
+            : double.tryParse(confidenceRaw.toString());
+        if (confidence != null) {
+          final percent =
+              confidence <= 1 ? (confidence * 100) : confidence;
+          identification['confidence'] =
+              percent.clamp(0, 100).toDouble();
+        }
+      }
+
+      final metaphysical = _coerceMap(data['metaphysical_properties']);
+      final physical = _coerceMap(data['physical_properties']);
+      final care = _coerceMap(data['care_instructions']);
+
+      final healing = _coerceStringList(metaphysical['healing_properties']);
+      final chakras = _coerceStringList(metaphysical['primary_chakras']);
+      final zodiac = _coerceStringList(metaphysical['zodiac_signs']);
+      final elements = _coerceStringList(metaphysical['elements']);
+
+      final imageUrl = (data['imageUrl'] ??
+              data['image_url'] ??
+              data['image'] ??
+              identification['image'])
+          ?.toString() ??
+          '';
+
+      final name = (identification['name'] ?? identification['title'])
+              ?.toString() ??
+          'Unknown Crystal';
+      final scientificName =
+          (identification['scientific_name'] ??
+                  identification['scientificName'] ??
+                  identification['species'])
+              ?.toString() ??
+          '';
+      final variety =
+          (identification['variety'] ?? identification['type'])
+              ?.toString() ??
+          '';
+
       // Create Crystal object from result
       _lastIdentifiedCrystal = Crystal(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: data['identification']['name'] ?? 'Unknown Crystal',
-        scientificName: data['identification']['scientific_name'] ?? '',
-        variety: data['identification']['variety'] ?? '',
-        imageUrl: data['imageUrl'] ?? '',
-        metaphysicalProperties: data['metaphysical_properties'] ?? {},
-        physicalProperties: data['physical_properties'] ?? {},
-        careInstructions: data['care_instructions'] ?? {},
-        healingProperties: List<String>.from(
-          data['metaphysical_properties']['healing_properties'] ?? []
-        ),
-        chakras: List<String>.from(
-          data['metaphysical_properties']['primary_chakras'] ?? []
-        ),
-        zodiacSigns: List<String>.from(
-          data['metaphysical_properties']['zodiac_signs'] ?? []
-        ),
-        elements: List<String>.from(
-          data['metaphysical_properties']['elements'] ?? []
-        ),
-        description: data['description'] ?? '',
+        name: name,
+        scientificName: scientificName,
+        variety: variety,
+        imageUrl: imageUrl,
+        metaphysicalProperties: metaphysical,
+        physicalProperties: physical,
+        careInstructions: care,
+        healingProperties: healing,
+        chakras: chakras,
+        zodiacSigns: zodiac,
+        elements: elements,
+        description: data['description']?.toString() ?? '',
       );
-      
+
+      final sanitizedMetaphysical = {
+        ...metaphysical,
+        'healing_properties': healing,
+        'primary_chakras': chakras,
+        'zodiac_signs': zodiac,
+        'elements': elements,
+      };
+
+      final sanitized = Map<String, dynamic>.from(data)
+        ..['identification'] = identification
+        ..['metaphysical_properties'] = sanitizedMetaphysical
+        ..['physical_properties'] = physical
+        ..['care_instructions'] = care
+        ..['imageUrl'] = imageUrl;
+
       _isIdentifying = false;
       notifyListeners();
-      
-      return data;
+
+      return sanitized;
     } catch (e) {
       _errorMessage = 'Failed to identify crystal: ${e.toString()}';
       _isIdentifying = false;
@@ -203,14 +281,25 @@ class CrystalService extends ChangeNotifier {
   Future<Map<String, dynamic>?> checkCompatibility({
     required List<String> crystalNames,
     String? purpose,
+    Map<String, dynamic>? userProfile,
   }) async {
     try {
       final callable = functions.httpsCallable('checkCrystalCompatibility');
-      final result = await callable.call({
+      final payload = <String, dynamic>{
         'crystalNames': crystalNames,
-        'purpose': purpose,
-      });
-      
+      };
+
+      final trimmedPurpose = purpose?.trim();
+      if (trimmedPurpose != null && trimmedPurpose.isNotEmpty) {
+        payload['purpose'] = trimmedPurpose;
+      }
+
+      if (userProfile != null && userProfile.isNotEmpty) {
+        payload['userProfile'] = userProfile;
+      }
+
+      final result = await callable.call(payload);
+
       return result.data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('Error checking compatibility: $e');
