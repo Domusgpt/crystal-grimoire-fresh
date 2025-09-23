@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({Key? key}) : super(key: key);
@@ -151,20 +152,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
     }
 
     try {
-      await FirebaseFirestore.instance.collection('marketplace').add({
+      final callable = FirebaseFunctions.instance.httpsCallable('createListing');
+      await callable.call({
         'title': title,
         'description': description,
         'priceCents': (price * 100).round(),
-        'sellerId': user.uid,
-        'sellerName': user.displayName ?? user.email ?? 'Crystal Seller',
-        'status': 'active',
         'category': category,
         'crystalId': (crystalId?.isNotEmpty == true ? crystalId : _slugify(title)),
         'imageUrl': imageUrl?.isNotEmpty == true ? imageUrl : null,
-        'isVerifiedSeller': false,
-        'rating': 5.0,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'currency': 'usd',
+        'quantity': 1,
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -177,11 +174,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
         ),
       );
       return true;
+    } on FirebaseFunctionsException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to create listing: ${e.message ?? e.code}',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return false;
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Failed to create listing: ' + e.toString(),
+            'Failed to create listing: $e',
             style: GoogleFonts.poppins(),
           ),
           backgroundColor: Colors.redAccent,

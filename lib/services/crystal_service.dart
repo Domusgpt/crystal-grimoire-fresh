@@ -75,21 +75,21 @@ class CrystalService extends ChangeNotifier {
     }
   }
   
-  // Get personalized crystal guidance
-  Future<String?> getCrystalGuidance({
-    required String crystalName,
-    required Map<String, dynamic> userProfile,
-    String? intention,
+  // Get personalized crystal guidance from Gemini-powered Function
+  Future<Map<String, dynamic>?> getCrystalGuidance({
+    required String question,
+    List<String>? intentions,
+    String? experience,
   }) async {
     try {
       final callable = functions.httpsCallable('getCrystalGuidance');
       final result = await callable.call({
-        'crystalName': crystalName,
-        'userProfile': userProfile,
-        'intention': intention,
+        'question': question,
+        'intentions': intentions,
+        'experience': experience,
       });
-      
-      return result.data['guidance'] as String?;
+
+      return Map<String, dynamic>.from(result.data as Map);
     } catch (e) {
       debugPrint('Error getting crystal guidance: $e');
       return null;
@@ -108,22 +108,33 @@ class CrystalService extends ChangeNotifier {
         'userProfile': userProfile,
       });
       
-      final recommendations = result.data['recommendations'] as List<dynamic>;
-      
-      return recommendations.map((data) => Crystal(
-        id: data['id'] ?? '',
-        name: data['name'] ?? '',
-        scientificName: data['scientificName'] ?? '',
-        imageUrl: data['imageUrl'] ?? '',
-        metaphysicalProperties: data['metaphysicalProperties'] ?? {},
-        physicalProperties: data['physicalProperties'] ?? {},
-        careInstructions: data['careInstructions'] ?? {},
-        healingProperties: List<String>.from(data['healingProperties'] ?? []),
-        chakras: List<String>.from(data['chakras'] ?? []),
-        zodiacSigns: List<String>.from(data['zodiacSigns'] ?? []),
-        elements: List<String>.from(data['elements'] ?? []),
-        description: data['description'] ?? '',
-      )).toList();
+      final payload = Map<String, dynamic>.from(result.data as Map);
+      final recommendations = List<Map<String, dynamic>>.from(
+        (payload['recommendations'] as List<dynamic>).map((item) => Map<String, dynamic>.from(item as Map)),
+      );
+
+      return recommendations
+          .map((data) => Crystal(
+                id: data['id']?.toString() ?? '',
+                name: data['name']?.toString() ?? '',
+                scientificName: data['scientificName']?.toString() ?? '',
+                imageUrl: data['imageUrl']?.toString() ?? '',
+                metaphysicalProperties: Map<String, dynamic>.from(
+                  data['metaphysicalProperties'] as Map? ?? {},
+                ),
+                physicalProperties: Map<String, dynamic>.from(
+                  data['physicalProperties'] as Map? ?? {},
+                ),
+                careInstructions: Map<String, dynamic>.from(
+                  data['careInstructions'] as Map? ?? {},
+                ),
+                healingProperties: List<String>.from(data['healingProperties'] ?? const []),
+                chakras: List<String>.from(data['chakras'] ?? const []),
+                zodiacSigns: List<String>.from(data['zodiacSigns'] ?? const []),
+                elements: List<String>.from(data['elements'] ?? const []),
+                description: data['description']?.toString() ?? '',
+              ))
+          .toList();
     } catch (e) {
       debugPrint('Error getting recommendations: $e');
       return null;
@@ -181,6 +192,7 @@ class CrystalService extends ChangeNotifier {
     required String moonPhase,
     required List<String> userCrystals,
     required Map<String, dynamic> userProfile,
+    String? intention,
   }) async {
     try {
       final callable = functions.httpsCallable('getMoonRituals');
@@ -188,28 +200,31 @@ class CrystalService extends ChangeNotifier {
         'moonPhase': moonPhase,
         'userCrystals': userCrystals,
         'userProfile': userProfile,
+        if (intention != null && intention.trim().isNotEmpty) 'intention': intention.trim(),
       });
-      
-      return result.data as Map<String, dynamic>;
+
+      return Map<String, dynamic>.from(result.data as Map);
     } catch (e) {
       debugPrint('Error getting moon rituals: $e');
       return null;
     }
   }
-  
+
   // Crystal compatibility check
   Future<Map<String, dynamic>?> checkCompatibility({
     required List<String> crystalNames,
     String? purpose,
+    Map<String, dynamic>? userProfile,
   }) async {
     try {
       final callable = functions.httpsCallable('checkCrystalCompatibility');
       final result = await callable.call({
         'crystalNames': crystalNames,
         'purpose': purpose,
+        if (userProfile != null) 'userProfile': userProfile,
       });
-      
-      return result.data as Map<String, dynamic>;
+
+      return Map<String, dynamic>.from(result.data as Map);
     } catch (e) {
       debugPrint('Error checking compatibility: $e');
       return null;

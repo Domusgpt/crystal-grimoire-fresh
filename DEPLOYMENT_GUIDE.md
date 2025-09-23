@@ -1,415 +1,87 @@
-# 🔮 Crystal Grimoire - Complete Deployment Guide
+# Crystal Grimoire – Deployment Guide (2025 Refresh)
 
-## Project Status: PRODUCTION-READY FOUNDATION BUILT ✅
+This guide describes the practical steps required to run the current pre-MVP build and what still needs to be finished before a real deployment.
 
-### What's Complete:
-- ✅ Flutter project structure with all dependencies
-- ✅ Mystical glassmorphic UI theme with visual_codex effects
-- ✅ Core services (Firebase, Auth, Crystal AI)
-- ✅ Data models (Crystal, UserProfile)
-- ✅ Beautiful animated home screen
-- ✅ Holographic widgets and floating crystal effects
-- ✅ Firebase configuration ready
+## 1. Prerequisites
+- **Flutter**: 3.19.0 or newer (Dart 3.3+). Check with `flutter --version`.
+- **Node.js**: 20.x (matches Functions runtime). The repo’s `package.json` lists Node 22, but Firebase Hosting currently targets Node 20—use Node 20 until the runtime is updated.【F:functions/package.json†L1-L17】【F:firebase.json†L1-L33】
+- **Firebase CLI**: `npm install -g firebase-tools`
+- **Firebase project**: The configs reference `crystal-grimoire-2025`. Replace with your own project ID if needed.
 
-### Current Architecture:
-```
-crystal-grimoire-fresh/
-├── lib/
-│   ├── main.dart (✅ Complete)
-│   ├── theme/app_theme.dart (✅ Complete)
-│   ├── screens/home_screen.dart (✅ Complete)
-│   ├── widgets/ (✅ Glassmorphic components)
-│   ├── services/ (✅ Firebase, Auth, Crystal)
-│   └── models/ (✅ Crystal, UserProfile)
-├── pubspec.yaml (✅ All dependencies)
-└── DEPLOYMENT_GUIDE.md (This file)
-```
+## 2. One-Time Setup
+1. **Install dependencies**
+   ```bash
+   flutter pub get
+   npm install --prefix functions
+   ```
+   _Note_: Payment/AI services now proxy through callable Functions, so no extra Flutter packages are required. Guard or remove any remaining imports that point at unreleased backends before producing a release build.【F:lib/services/enhanced_payment_service.dart†L1-L220】【F:lib/services/firebase_ai_service.dart†L1-L64】
+2. **Select the Firebase project**
+   ```bash
+   firebase login
+   firebase use <your-project-id>
+   ```
+3. **Configure callable Functions**
+   ```bash
+   firebase functions:config:set \
+     gemini.api_key="YOUR_GEMINI_KEY" \
+     stripe.secret_key="sk_live_or_test" \
+     stripe.premium_price_id="price_xxx" \
+     stripe.pro_price_id="price_xxx" \
+     stripe.founders_price_id="price_xxx"
+   ```
+   Add optional providers (OpenAI, Anthropic, Groq) if you intend to use `LLMService`.
+4. **Seed data**
+   - Populate the `crystal_library` collection (use `scripts/seed_database.js` with a service account JSON). The UI expects canonical crystal docs for collection hydration.【F:lib/services/collection_service_v2.dart†L142-L212】
+   - Create any required indexes via `firestore.indexes.json`.
 
-## 🚀 DEPLOYMENT ROADMAP
-
-### Phase 1: Repository & Firebase Setup
-1. Create GitHub repository
-2. Initialize Firebase project 
-3. Set up Cloud Functions
-4. Configure Firestore database
-5. Set up authentication
-
-### Phase 2: Complete UI Implementation
-6. Build all remaining screens
-7. Add splash screen
-8. Implement navigation
-9. Add profile management
-10. Create collection screens
-
-### Phase 3: Backend & Data
-11. Deploy Cloud Functions with AI
-12. Seed crystal database
-13. Set up payment system
-14. Configure notifications
-
-### Phase 4: Testing & Launch
-15. End-to-end testing
-16. Performance optimization
-17. Deploy to Firebase Hosting
-18. Set up monitoring
-
----
-
-## 📋 IMMEDIATE DEPLOYMENT STEPS
-
-### Step 1: Initialize Git Repository
+## 3. Running Locally (Flutter Web)
 ```bash
-cd /mnt/c/Users/millz/Desktop/CRYSTAL-GRIMOIRE-2025-10-1/crystal-grimoire-fresh
-git init
-git add .
-git commit -m "🔮 Initial commit: Crystal Grimoire with glassmorphic UI"
+flutter run -d chrome \
+  --dart-define=GEMINI_API_KEY=... \
+  --dart-define=OPENAI_API_KEY=... \
+  --dart-define=CLAUDE_API_KEY=... \
+  --dart-define=STRIPE_PUBLISHABLE_KEY=...
 ```
+Additional optional defines: `GROQ_API_KEY`, `REVENUECAT_API_KEY`, `TERMS_URL`, `PRIVACY_URL`, `SUPPORT_URL`. These map to `EnvironmentConfig`.【F:lib/services/environment_config.dart†L1-L200】
 
-### Step 2: Create GitHub Repository
-```bash
-gh repo create crystal-grimoire-production --public --description "🔮 Crystal Grimoire - AI-powered crystal identification with mystical glassmorphic UI"
-git remote add origin https://github.com/YOUR_USERNAME/crystal-grimoire-production.git
-git branch -M main
-git push -u origin main
-```
+During development you may want to relax Firestore security rules or verify the signed-in user’s email to avoid `permission-denied` errors (rules require `email_verified`).【F:firestore.rules†L1-L40】
 
-### Step 3: Initialize Firebase Project
-```bash
-# Login to Firebase
-firebase login
+## 4. Cloud Functions
+- **Local emulation**: `firebase emulators:start --only functions,firestore` (requires `.env`/config values above).
+- **Deployment**: Once missing APIs are implemented and tests pass,
+  ```bash
+  npm --prefix functions run lint   # optional when lint config is ready
+  npm --prefix functions test       # placeholder; no tests today
+  firebase deploy --only functions
+  ```
+- Ensure `identifyCrystal`, `getDailyCrystal`, `getCrystalGuidance`, `analyzeDream`, moon ritual/healing layouts, and Seer credit earn/spend succeed before shipping. Surface quota messaging for the economy flows so the UI degrades gracefully.【F:functions/index.js†L912-L2374】
 
-# Create new Firebase project
-firebase projects:create crystal-grimoire-2025 --display-name "Crystal Grimoire Production"
+## 5. Building & Hosting Flutter Web
+1. **Fix build blockers** (missing dependencies, outdated widget test). The default `flutter test` currently fails because `test/widget_test.dart` still references `MyApp`. Replace it with a smoke test for `CrystalGrimoireApp` before enabling CI.【F:test/widget_test.dart†L12-L24】
+2. **Build**:
+   ```bash
+   flutter build web --release --dart-define=... (same defines as above)
+   ```
+3. **Deploy hosting**:
+   ```bash
+   firebase deploy --only hosting
+   ```
+   Hosting rewrites currently send all routes to `/index.html`; `/api/**` rewrites to a non-existent `api` function. Remove or implement that rewrite before production.【F:firebase.json†L7-L25】
 
-# Initialize Firebase in project
-firebase init
+## 6. Post-Deployment Checklist
+- Confirm authentication works and that Firestore rules permit expected writes (user profile, collection, dreams).
+- Test callable Functions via the live site (identify crystal, dream analysis). Monitor with `firebase functions:log`.
+- Validate that Stripe checkout sessions are created and `users/{uid}/plan/active` is updated after `finalizeStripeCheckoutSession`.【F:functions/index.js†L912-L1188】
+- Review Firestore for required documents:
+  - `users/{uid}` contains `profile` and `settings`.
+  - `users/{uid}/collection` entries include `libraryRef`, `notes`, `tags` only (per security rules).【F:firestore.rules†L37-L76】
+  - `crystal_library` is populated.
 
-# Select these services:
-# ◉ Firestore: Configure security rules and indexes
-# ◉ Functions: Configure a Cloud Functions directory
-# ◉ Hosting: Configure files for Firebase Hosting
-# ◉ Storage: Configure a security rules file for Cloud Storage
-# ◉ Authentication: Configure Authentication
-```
+## 7. Preparing for a Real Release
+Before inviting external testers, finish the backlog described in `docs/APP_ASSESSMENT.md`:
+- Ship missing Cloud Functions or hide the dependent UI.
+- Confirm Stripe configuration (publishable/secret keys, price IDs) and webhook handling are in place; document the plan for mobile in-app purchases if needed.
+- Add automated smoke tests (`flutter test`, Cloud Function unit tests) and update CI scripts accordingly.
+- Instrument error logging/monitoring (Analytics, Crashlytics/Performance).
 
-### Step 4: Configure Firebase Services
-```bash
-# Enable Authentication providers
-firebase auth:import --hash-algo=scrypt --project=crystal-grimoire-2025
-
-# Deploy Firestore rules
-firebase deploy --only firestore:rules
-
-# Deploy storage rules  
-firebase deploy --only storage
-```
-
----
-
-## 🛠️ REQUIRED CONFIGURATIONS
-
-### Firebase Configuration (firebase.json)
-```json
-{
-  "hosting": {
-    "public": "build/web",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [
-      { "source": "/api/**", "function": "api" },
-      { "source": "**", "destination": "/index.html" }
-    ]
-  },
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs18"
-  },
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
-  "storage": {
-    "rules": "storage.rules"
-  }
-}
-```
-
-### Environment Variables Needed
-```bash
-# Firebase Config
-FIREBASE_API_KEY=your_api_key_here
-FIREBASE_AUTH_DOMAIN=crystal-grimoire-2025.firebaseapp.com
-FIREBASE_PROJECT_ID=crystal-grimoire-2025
-FIREBASE_STORAGE_BUCKET=crystal-grimoire-2025.appspot.com
-FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-FIREBASE_APP_ID=your_app_id
-
-# API Keys for Cloud Functions
-GEMINI_API_KEY=your_gemini_key
-OPENAI_API_KEY=your_openai_key
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-```
-
----
-
-## 📱 REMAINING UI SCREENS TO BUILD
-
-### Critical Screens:
-1. **SplashScreen** - Animated loading with crystal formation
-2. **CrystalIdentificationScreen** - Camera integration + AI results
-3. **CollectionScreen** - User's crystal library with search/filter
-4. **MoonRitualsScreen** - Current moon phase + ritual recommendations
-5. **CrystalHealingScreen** - Chakra visualization + healing layouts
-6. **DreamJournalScreen** - Dream entry + AI analysis
-7. **SoundBathScreen** - Audio player with crystal frequencies
-8. **MarketplaceScreen** - Crystal buying/selling platform
-9. **ProfileScreen** - User settings + subscription management
-
-### Supporting Screens:
-10. **AuthenticationScreen** - Login/register with social auth
-11. **OnboardingScreen** - Birth chart setup + preferences
-12. **NotificationScreen** - System notifications + alerts
-13. **SettingsScreen** - App preferences + theme settings
-14. **HelpScreen** - Tutorials + support documentation
-
----
-
-## 🔥 FIREBASE CLOUD FUNCTIONS TO BUILD
-
-### Core API Functions:
-```javascript
-// functions/index.js structure needed:
-
-// 1. Crystal Identification
-exports.identifyCrystal = functions.https.onCall(async (data, context) => {
-  // AI-powered crystal identification from image
-  // Returns: complete crystal data + metaphysical properties
-});
-
-// 2. Personalized Guidance  
-exports.getCrystalGuidance = functions.https.onCall(async (data, context) => {
-  // Personalized crystal advice based on birth chart + collection
-});
-
-// 3. Dream Analysis
-exports.analyzeDream = functions.https.onCall(async (data, context) => {
-  // AI dream interpretation with crystal correlations
-});
-
-// 4. Moon Rituals
-exports.getMoonRituals = functions.https.onCall(async (data, context) => {
-  // Moon phase calculations + ritual recommendations
-});
-
-// 5. Healing Layouts
-exports.generateHealingLayout = functions.https.onCall(async (data, context) => {
-  // Crystal healing session layouts by chakra/intention
-});
-
-// 6. Crystal Recommendations
-exports.getCrystalRecommendations = functions.https.onCall(async (data, context) => {
-  // Personalized crystal suggestions
-});
-
-// 7. Marketplace Functions
-exports.createListing = functions.https.onCall(async (data, context) => {
-  // Create crystal marketplace listing
-});
-
-// 8. Payment Processing
-exports.processPayment = functions.https.onCall(async (data, context) => {
-  // Stripe payment integration
-});
-```
-
----
-
-## 🗄️ FIRESTORE DATABASE SCHEMA
-
-### Collections Structure:
-```
-crystal_database/ (Master crystal reference)
-├── {crystalId}/
-│   ├── name: "Amethyst"
-│   ├── scientificName: "Silicon Dioxide (SiO2)"
-│   ├── metaphysicalProperties: {...}
-│   ├── physicalProperties: {...}
-│   ├── careInstructions: {...}
-│   └── imageUrls: [...]
-
-users/ (User profiles)
-├── {userId}/
-│   ├── profile: {...}
-│   ├── crystals/ (Personal collection)
-│   ├── dreams/ (Dream journal entries)
-│   ├── healingSessions/ (Healing history)
-│   └── rituals/ (Completed rituals)
-
-marketplace/ (Crystal marketplace)
-├── {listingId}/
-│   ├── sellerId: "userId"
-│   ├── crystalId: "crystalId"  
-│   ├── price: 45.99
-│   └── status: "active"
-
-moonData/ (Astronomical data)
-├── current/
-│   ├── phase: "Full Moon"
-│   ├── illumination: 0.98
-│   └── nextPhases: {...}
-```
-
----
-
-## 🎨 ASSETS NEEDED
-
-### Images Required:
-- Crystal database images (100+ crystal photos)
-- Chakra visualization graphics
-- Moon phase icons
-- Background textures
-- Logo variations
-
-### Audio Files:
-- Crystal singing bowls (7 chakra frequencies)
-- Nature sounds (rain, ocean, forest)
-- Guided meditation tracks
-- Sound bath compositions
-
-### Animations:
-- Lottie files for loading states
-- Crystal formation animations
-- Chakra spinning effects
-- Particle system configs
-
----
-
-## 🔐 SECURITY CONFIGURATION
-
-### Firestore Rules:
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can only access their own data
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      
-      // Personal collections
-      match /crystals/{crystalId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-    }
-    
-    // Crystal database is read-only for all authenticated users
-    match /crystal_database/{crystalId} {
-      allow read: if request.auth != null;
-      allow write: if false; // Only admins via server
-    }
-    
-    // Marketplace listings
-    match /marketplace/{listingId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.sellerId;
-    }
-  }
-}
-```
-
-### Storage Rules:
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    // Users can upload to their own folder
-    match /users/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Public crystal images (read-only)
-    match /crystals/{allPaths=**} {
-      allow read: if true;
-      allow write: if false; // Admin only
-    }
-  }
-}
-```
-
----
-
-## 📊 MONITORING & ANALYTICS
-
-### Firebase Analytics Events:
-- crystal_identified
-- collection_updated  
-- healing_session_started
-- dream_analyzed
-- ritual_completed
-- marketplace_purchase
-
-### Performance Monitoring:
-- App startup time
-- Crystal identification speed
-- Database query performance
-- Image upload success rate
-
----
-
-## 🚀 DEPLOYMENT COMMANDS SUMMARY
-
-```bash
-# 1. Repository Setup
-git init && git add . && git commit -m "🔮 Initial commit"
-gh repo create crystal-grimoire-production --public
-git remote add origin [repo-url]
-git push -u origin main
-
-# 2. Firebase Setup  
-firebase login
-firebase projects:create crystal-grimoire-2025
-firebase init
-firebase deploy --only firestore:rules,storage
-
-# 3. Flutter Web Build
-flutter clean
-flutter pub get
-flutter build web --release --base-href="/"
-
-# 4. Deploy to Hosting
-firebase deploy --only hosting
-
-# 5. Deploy Cloud Functions
-cd functions
-npm install
-firebase deploy --only functions
-
-# 6. Seed Database
-firebase firestore:seed --project crystal-grimoire-2025
-```
-
----
-
-## 🎯 SUCCESS CRITERIA
-
-### MVP Launch Requirements:
-- ✅ Beautiful responsive UI with glassmorphic effects
-- ✅ User authentication (email + Google)
-- ✅ Crystal identification with AI
-- ✅ Personal crystal collection
-- ✅ Basic moon phase display
-- ✅ Dream journal functionality
-- ✅ Sound bath audio player
-- ✅ Marketplace browsing
-
-### Performance Targets:
-- First paint: < 2 seconds
-- Crystal ID response: < 5 seconds
-- Database queries: < 500ms
-- Mobile responsive: 100%
-- Lighthouse score: > 90
-
----
-
-This deployment guide provides the complete roadmap to launch Crystal Grimoire with all intended features. The foundation is solid - now we execute the deployment plan systematically.
+Keep this guide updated as deployment steps change.
