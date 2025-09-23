@@ -1,213 +1,114 @@
-import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:purchases_flutter/purchases_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import '../config/plan_entitlements.dart';
 import 'environment_config.dart';
 import 'storage_service.dart';
 
 class EnhancedPaymentService {
-  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  static EnvironmentConfig get _config => EnvironmentConfig.instance;
-  static String get _revenueCatApiKey => _config.revenueCatApiKey;
-  static const String _entitlementIdPremium = 'premium';
-  static const String _entitlementIdPro = 'pro';
-  static const String _entitlementIdFounders = 'founders';
-  
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static bool _isInitialized = false;
-  static bool _isWebPlatform = kIsWeb;
-  
-  // Subscription products (store identifiers or Stripe price IDs)
+  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static final EnvironmentConfig _config = EnvironmentConfig.instance;
+
+  static bool _initialized = false;
+  static SubscriptionStatus? _cachedStatus;
+
   static String get premiumMonthlyId =>
-      _config.stripePremiumPriceId.isNotEmpty
-          ? _config.stripePremiumPriceId
-          : 'crystal_premium_monthly';
+      _config.stripePremiumPriceId.isNotEmpty ? _config.stripePremiumPriceId : 'price_premium_monthly';
   static String get proMonthlyId =>
-      _config.stripeProPriceId.isNotEmpty
-          ? _config.stripeProPriceId
-          : 'crystal_pro_monthly';
+      _config.stripeProPriceId.isNotEmpty ? _config.stripeProPriceId : 'price_pro_monthly';
   static String get foundersLifetimeId =>
-      _config.stripeFoundersPriceId.isNotEmpty
-          ? _config.stripeFoundersPriceId
-          : 'crystal_founders_lifetime';
-  
-  // Subscription cache for web
-  static SubscriptionStatus? _webSubscriptionStatus;
-  
-  // Initialize payment service (with web platform support)
+      _config.stripeFoundersPriceId.isNotEmpty ? _config.stripeFoundersPriceId : 'price_founders_lifetime';
+
   static Future<void> initialize() async {
-    if (_isInitialized) return;
-    
-    try {
-      if (_isWebPlatform) {
-        print('Web platform detected - enabling Stripe checkout flow');
-        await _initializeWebStatus();
-      } else {
-        await _initializeRevenueCat();
-      }
-      _isInitialized = true;
-    } catch (e) {
-      print('Payment service initialization failed: $e');
-      // Fallback to mock mode
-      await _initializeWebStatus();
-      _isInitialized = true;
-    }
+    if (_initialized) return;
+    // Reserved for future platform specific initialisation.
+    _initialized = true;
   }
-  
-  static Future<void> _initializeRevenueCat() async {
-    if (_revenueCatApiKey.isEmpty) {
-      throw Exception('RevenueCat API key missing');
-    }
 
-    await Purchases.setLogLevel(LogLevel.debug);
-
-    PurchasesConfiguration configuration = PurchasesConfiguration(_revenueCatApiKey);
-    await Purchases.configure(configuration);
-    
-    // Set user ID if logged in
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await Purchases.logIn(user.uid);
-    }
-    
-    // Listen to customer info updates
-    Purchases.addCustomerInfoUpdateListener(_handleCustomerInfoUpdate);
-  }
-  
-  static Future<void> _initializeWebStatus() async {
-    // Initialize with free tier for web
-    _webSubscriptionStatus = SubscriptionStatus(
-      tier: 'free',
-      isActive: false,
-      expiresAt: null,
-      willRenew: false,
-    );
-    
-    // Check if user has a stored subscription (for testing)
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final doc = await _firestore.collection('users').doc(user.uid).get();
-        if (doc.exists && doc.data() != null) {
-          final data = doc.data()!;
-          final profile = data['profile'] is Map<String, dynamic>
-              ? Map<String, dynamic>.from(data['profile'] as Map)
-              : <String, dynamic>{};
-          final tier = (profile['subscriptionTier'] ?? 'free').toString();
-          final status = (profile['subscriptionStatus'] ?? 'inactive').toString();
-          final expiresAt = _coerceExpiresAt(profile['subscriptionExpiresAt']);
-          _webSubscriptionStatus = SubscriptionStatus(
-            tier: tier,
-            isActive: status.toLowerCase() == 'active',
-            expiresAt: expiresAt,
-            willRenew: profile['subscriptionWillRenew'] == true,
-          );
-        }
-      } catch (e) {
-        print('Failed to load web subscription status: $e');
-      }
-    }
-  }
-  
-  // Get current subscription status
-  static Future<SubscriptionStatus> getSubscriptionStatus() async {
-    if (!_isInitialized) {
-      await initialize();
-    }
-    
-    if (_isWebPlatform) {
-      return _webSubscriptionStatus ?? SubscriptionStatus(
-        tier: 'free',
-        isActive: false,
-        expiresAt: null,
-        willRenew: false,
-      );
-    }
-    
-    try {
-      final customerInfo = await Purchases.getCustomerInfo();
-      return _parseCustomerInfo(customerInfo);
-    } catch (e) {
-      // Fallback to stored value if RevenueCat fails
-      final storedTier = await StorageService.getSubscriptionTier();
-      return SubscriptionStatus(
-        tier: storedTier,
-        isActive: storedTier != 'free',
-        expiresAt: null,
-        willRenew: false,
-      );
-    }
-  }
-  
-  // Get available packages
   static Future<List<MockPackage>> getOfferings() async {
-    if (_isWebPlatform) {
-      return _getWebMockOfferings();
-    }
-    
-    try {
-      final offerings = await Purchases.getOfferings();
-      if (offerings.current == null) {
-        return _getWebMockOfferings();
-      }
-      
-      return offerings.current!.availablePackages.map((package) => 
-        MockPackage(
-          identifier: package.storeProduct.identifier,
-          title: package.storeProduct.title,
-          description: package.storeProduct.description,
-          price: package.storeProduct.priceString,
-          isLifetime: package.packageType == PackageType.lifetime,
-        )
-      ).toList();
-    } catch (e) {
-      print('Error fetching offerings: $e');
-      return _getWebMockOfferings();
-    }
-  }
-  
-  static List<MockPackage> _getWebMockOfferings() {
+    await initialize();
+
     return [
       MockPackage(
         identifier: premiumMonthlyId,
-        title: 'Crystal Premium',
-        description: '5 IDs/day + Collection + Ad-free',
-        price: '\$8.99',
+        title: 'Premium',
+        description: 'Unlock extended identifications, dream analysis, and moon ritual guidance each month.',
+        price: 'Stripe checkout',
         isLifetime: false,
       ),
       MockPackage(
         identifier: proMonthlyId,
-        title: 'Crystal Pro',
-        description: '20 IDs/day + AI Guidance + Premium features',
-        price: '\$19.99',
+        title: 'Pro',
+        description: 'Priority AI sessions, deeper library access, and enhanced healing layouts.',
+        price: 'Stripe checkout',
         isLifetime: false,
       ),
       MockPackage(
         identifier: foundersLifetimeId,
-        title: 'Founders Lifetime',
-        description: 'Unlimited everything + Beta access',
-        price: '\$499.00',
+        title: 'Founders',
+        description: 'Lifetime access to every feature, plus future expansion packs.',
+        price: 'One-time',
         isLifetime: true,
       ),
     ];
   }
-  
-  // Purchase premium subscription
+
+  static Future<SubscriptionStatus> getSubscriptionStatus() async {
+    await initialize();
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      final tier = await StorageService.getSubscriptionTier();
+      return SubscriptionStatus(
+        tier: tier,
+        isActive: tier != 'free',
+        expiresAt: null,
+        willRenew: false,
+      );
+    }
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('plan')
+          .doc('active')
+          .get();
+
+      final planData = snapshot.data();
+      if (planData != null) {
+        await StorageService.savePlanSnapshot(planData);
+      }
+
+      final status = _statusFromPlan(planData);
+      _cachedStatus = status;
+      await StorageService.saveSubscriptionTier(status.tier);
+      return status;
+    } catch (error) {
+      final fallbackTier = await StorageService.getSubscriptionTier();
+      return _cachedStatus ??
+          SubscriptionStatus(
+            tier: fallbackTier,
+            isActive: fallbackTier != 'free',
+            expiresAt: null,
+            willRenew: false,
+          );
+    }
+  }
+
   static Future<PurchaseResult> purchasePremium() async {
-    return await _purchaseProduct(premiumMonthlyId, 'premium');
+    return _startStripeCheckout(premiumMonthlyId, 'premium');
   }
-  
-  // Purchase pro subscription
+
   static Future<PurchaseResult> purchasePro() async {
-    return await _purchaseProduct(proMonthlyId, 'pro');
+    return _startStripeCheckout(proMonthlyId, 'pro');
   }
-  
-  // Purchase founders lifetime
+
   static Future<PurchaseResult> purchaseFounders() async {
-    return await _purchaseProduct(foundersLifetimeId, 'founders');
+    return _startStripeCheckout(foundersLifetimeId, 'founders');
   }
 
   static Future<SubscriptionStatus> confirmWebCheckout(String sessionId) async {
@@ -215,125 +116,63 @@ class EnhancedPaymentService {
       throw Exception('Missing checkout session identifier.');
     }
 
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     if (user == null) {
-      throw Exception('You must be signed in to verify subscriptions.');
+      throw Exception('You must be signed in to verify a subscription.');
     }
 
-    try {
-      final callable = _functions.httpsCallable('finalizeStripeCheckoutSession');
-      final response = await callable.call({'sessionId': sessionId});
-      final data = Map<String, dynamic>.from(response.data as Map);
-      final resolvedTier = (data['plan'] as String? ?? data['tier'] as String? ?? 'free').toLowerCase();
-      final status = SubscriptionStatus(
-        tier: resolvedTier,
-        isActive: data['isActive'] == true,
-        expiresAt: _coerceExpiresAt(data['expiresAt']),
-        willRenew: data['willRenew'] == true,
-      );
+    final callable = _functions.httpsCallable('finalizeStripeCheckoutSession');
+    final response = await callable.call({'sessionId': sessionId});
+    final data = Map<String, dynamic>.from(response.data as Map);
 
-      _webSubscriptionStatus = status;
-      await StorageService.saveSubscriptionTier(status.tier);
-      return status;
-    } catch (e) {
-      throw Exception('Failed to verify checkout status: $e');
-    }
-  }
-
-  // Restore purchases
-  static Future<bool> restorePurchases() async {
-    if (_isWebPlatform) {
-      // For web, try to restore from Firebase
-      return await _restoreWebPurchases();
-    }
-    
-    try {
-      final customerInfo = await Purchases.restorePurchases();
-      
-      // Check if any entitlements are active
-      final hasActiveSubscription = customerInfo.entitlements.all.values
-          .any((entitlement) => entitlement.isActive);
-      
-      if (hasActiveSubscription) {
-        await _handleCustomerInfoUpdate(customerInfo);
-      }
-      
-      return hasActiveSubscription;
-    } catch (e) {
-      print('Error restoring purchases: $e');
-      return false;
-    }
-  }
-  
-  static Future<bool> _restoreWebPurchases() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-    
-    try {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final profile = data['profile'] is Map<String, dynamic>
-            ? Map<String, dynamic>.from(data['profile'] as Map)
-            : <String, dynamic>{};
-        final tier = (profile['subscriptionTier'] ?? 'free').toString();
-
-        if (tier != 'free') {
-          _webSubscriptionStatus = SubscriptionStatus(
-            tier: tier,
-            isActive: (profile['subscriptionStatus'] ?? 'inactive') == 'active',
-            expiresAt: _coerceExpiresAt(profile['subscriptionExpiresAt']),
-            willRenew: profile['subscriptionWillRenew'] == true,
-          );
-
-          await StorageService.saveSubscriptionTier(tier);
-          return true;
-        }
-      }
-    } catch (e) {
-      print('Error restoring web purchases: $e');
-    }
-    
-    return false;
-  }
-  
-  // Cancel subscription
-  static Future<void> cancelSubscription() async {
-    if (_isWebPlatform) {
-      throw Exception('Web subscriptions are managed through the admin panel');
-    }
-    
-    // RevenueCat doesn't handle cancellation directly
-    // Users need to manage subscriptions through platform stores
-    throw Exception('Please manage your subscription through the App Store or Google Play Store');
-  }
-  
-  // Enable founders account (for development/testing)
-  static Future<void> enableFoundersAccountForTesting() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    
-    _webSubscriptionStatus = SubscriptionStatus(
-      tier: 'founders',
-      isActive: true,
-      expiresAt: null,
-      willRenew: false,
+    final status = SubscriptionStatus(
+      tier: (data['plan'] as String? ?? data['tier'] as String? ?? 'free').toLowerCase(),
+      isActive: data['isActive'] == true,
+      expiresAt: data['expiresAt']?.toString(),
+      willRenew: data['willRenew'] == true,
     );
-    
-    await StorageService.saveSubscriptionTier('founders');
-    
-    // Update Firebase
+
+    _cachedStatus = status;
+    await StorageService.saveSubscriptionTier(status.tier);
+    await _refreshPlanSnapshot();
+    return status;
+  }
+
+  static Future<bool> restorePurchases() async {
+    final status = await getSubscriptionStatus();
+    return status.tier != 'free';
+  }
+
+  static Future<void> cancelSubscription() async {
+    throw Exception('Manage cancellations from the Stripe customer portal or admin panel.');
+  }
+
+  static Future<void> enableFoundersAccountForTesting() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final limits = PlanEntitlements.effectiveLimits('founders');
+    final payload = {
+      'plan': 'founders',
+      'billingTier': 'founders',
+      'provider': 'manual',
+      'effectiveLimits': limits,
+      'flags': PlanEntitlements.flags('founders'),
+      'willRenew': false,
+      'lifetime': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
     await _firestore.collection('users').doc(user.uid).set({
       'profile': {
         'subscriptionTier': 'founders',
         'subscriptionStatus': 'active',
         'subscriptionProvider': 'manual',
-        'subscriptionExpiresAt': null,
         'subscriptionWillRenew': false,
+        'subscriptionExpiresAt': null,
         'subscriptionUpdatedAt': FieldValue.serverTimestamp(),
         'subscriptionBillingTier': 'founders',
-        'effectiveLimits': PlanEntitlements.effectiveLimits('founders'),
-        'isDevelopmentAccount': true,
+        'effectiveLimits': limits,
       }
     }, SetOptions(merge: true));
 
@@ -342,79 +181,25 @@ class EnhancedPaymentService {
         .doc(user.uid)
         .collection('plan')
         .doc('active')
-        .set({
-      'plan': 'founders',
-      'billingTier': 'founders',
-      'provider': 'manual',
-      'effectiveLimits': PlanEntitlements.effectiveLimits('founders'),
-      'flags': PlanEntitlements.flags('founders'),
-      'willRenew': false,
-      'lifetime': true,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+        .set(payload, SetOptions(merge: true));
+
+    await StorageService.saveSubscriptionTier('founders');
+    await StorageService.savePlanSnapshot(payload);
+
+    _cachedStatus = SubscriptionStatus(
+      tier: 'founders',
+      isActive: true,
+      expiresAt: null,
+      willRenew: false,
+    );
   }
-  
-  // Private helper methods
-  static Future<PurchaseResult> _purchaseProduct(String productId, String tier) async {
-    if (_isWebPlatform) {
-      return await _handleWebPurchase(productId, tier);
-    }
-    
-    try {
-      // Get offerings
-      final offerings = await Purchases.getOfferings();
-      if (offerings.current == null) {
-        return PurchaseResult(
-          success: false,
-          error: 'No offerings available',
-        );
-      }
-      
-      // Find the package
-      Package? package;
-      for (final p in offerings.current!.availablePackages) {
-        if (p.storeProduct.identifier == productId) {
-          package = p;
-          break;
-        }
-      }
-      
-      if (package == null) {
-        return PurchaseResult(
-          success: false,
-          error: 'Product not found',
-        );
-      }
-      
-      // Make the purchase
-      final purchaseResult = await Purchases.purchasePackage(package);
-      
-      // Update Firebase
-      await _updateFirebaseSubscription(purchaseResult);
-      
-      return PurchaseResult(
-        success: true,
-        customerInfo: purchaseResult,
-      );
-    } on PurchasesErrorCode catch (e) {
-      return PurchaseResult(
-        success: false,
-        error: _mapPurchaseError(e),
-      );
-    } catch (e) {
-      return PurchaseResult(
-        success: false,
-        error: 'Unexpected error: $e',
-      );
-    }
-  }
-  
-  static Future<PurchaseResult> _handleWebPurchase(String productId, String tier) async {
-    final user = FirebaseAuth.instance.currentUser;
+
+  static Future<PurchaseResult> _startStripeCheckout(String priceId, String tier) async {
+    final user = _auth.currentUser;
     if (user == null) {
       return PurchaseResult(
         success: false,
-        error: 'You must be signed in to start a subscription.',
+        error: 'Sign in to start a subscription checkout.',
         isWebPlatform: true,
       );
     }
@@ -422,8 +207,7 @@ class EnhancedPaymentService {
     if (_config.stripePublishableKey.isEmpty) {
       return PurchaseResult(
         success: false,
-        error:
-            'Stripe is not configured for web purchases. Set STRIPE_PUBLISHABLE_KEY and price IDs before deploying.',
+        error: 'Stripe is not configured. Set STRIPE_PUBLISHABLE_KEY and price IDs.',
         isWebPlatform: true,
       );
     }
@@ -432,7 +216,7 @@ class EnhancedPaymentService {
       final urls = _buildWebCheckoutUrls();
       final callable = _functions.httpsCallable('createStripeCheckoutSession');
       final response = await callable.call({
-        'priceId': productId,
+        'priceId': priceId,
         'tier': tier,
         'successUrl': urls['success'],
         'cancelUrl': urls['cancel'],
@@ -445,7 +229,7 @@ class EnhancedPaymentService {
       if (checkoutUrl == null || sessionId == null) {
         return PurchaseResult(
           success: false,
-          error: 'Checkout session could not be created. Please try again.',
+          error: 'Checkout session could not be created.',
           isWebPlatform: true,
         );
       }
@@ -456,10 +240,10 @@ class EnhancedPaymentService {
         redirectUrl: checkoutUrl,
         webSessionId: sessionId,
       );
-    } catch (e) {
+    } catch (error) {
       return PurchaseResult(
         success: false,
-        error: 'Failed to start checkout: $e',
+        error: 'Failed to start checkout: $error',
         isWebPlatform: true,
       );
     }
@@ -467,42 +251,51 @@ class EnhancedPaymentService {
 
   static Map<String, String> _buildWebCheckoutUrls() {
     final baseUri = Uri.base;
-    final origin = baseUri.hasAuthority
-        ? baseUri.origin
-        : _config.websiteUrl;
+    final origin = baseUri.hasAuthority ? baseUri.origin : _config.websiteUrl;
     final successUrl = '$origin/#/subscription?session_id={CHECKOUT_SESSION_ID}';
     final cancelUrl = '$origin/#/subscription?cancelled=true';
     return {'success': successUrl, 'cancel': cancelUrl};
   }
-  
-  static String _mapPurchaseError(PurchasesErrorCode error) {
-    switch (error) {
-      case PurchasesErrorCode.purchaseCancelledError:
-        return 'Purchase cancelled';
-      case PurchasesErrorCode.purchaseNotAllowedError:
-        return 'Purchase not allowed';
-      case PurchasesErrorCode.purchaseInvalidError:
-        return 'Invalid purchase';
-      case PurchasesErrorCode.productNotAvailableForPurchaseError:
-        return 'Product not available';
-      case PurchasesErrorCode.productAlreadyPurchasedError:
-        return 'Already purchased';
-      case PurchasesErrorCode.networkError:
-        return 'Network error';
-      default:
-        return 'Purchase failed';
+
+  static SubscriptionStatus _statusFromPlan(Map<String, dynamic>? plan) {
+    if (plan == null || plan.isEmpty) {
+      return SubscriptionStatus(tier: 'free', isActive: false, expiresAt: null, willRenew: false);
     }
-  }
-  
-  static String? _stringFromDate(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) {
-      return value.toIso8601String();
-    }
-    return value.toString();
+
+    final tier = (plan['plan'] ?? plan['billingTier'] ?? 'free').toString();
+    final lifetime = plan['lifetime'] == true;
+    final expiresAt = _timestampToIso(plan['expiresAt']);
+    final willRenew = lifetime ? false : plan['willRenew'] == true;
+
+    return SubscriptionStatus(
+      tier: tier,
+      isActive: tier != 'free',
+      expiresAt: expiresAt,
+      willRenew: willRenew,
+    );
   }
 
-  static String? _coerceExpiresAt(dynamic value) {
+  static Future<void> _refreshPlanSnapshot() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('plan')
+        .doc('active')
+        .get();
+
+    if (snapshot.exists) {
+      final data = snapshot.data();
+      if (data != null) {
+        await StorageService.savePlanSnapshot(data);
+        _cachedStatus = _statusFromPlan(data);
+      }
+    }
+  }
+
+  static String? _timestampToIso(dynamic value) {
     if (value == null) return null;
     if (value is Timestamp) {
       return value.toDate().toIso8601String();
@@ -510,111 +303,8 @@ class EnhancedPaymentService {
     if (value is DateTime) {
       return value.toIso8601String();
     }
-    if (value is num) {
-      // Assume seconds since epoch
-      return DateTime.fromMillisecondsSinceEpoch(value.toInt() * 1000, isUtc: true)
-          .toIso8601String();
-    }
     final parsed = DateTime.tryParse(value.toString());
     return parsed?.toIso8601String() ?? value.toString();
-  }
-
-  static SubscriptionStatus _parseCustomerInfo(CustomerInfo customerInfo) {
-    if (customerInfo.entitlements.all[_entitlementIdFounders]?.isActive == true) {
-      return SubscriptionStatus(
-        tier: 'founders',
-        isActive: true,
-        expiresAt: null, // Lifetime
-        willRenew: false,
-      );
-    } else if (customerInfo.entitlements.all[_entitlementIdPro]?.isActive == true) {
-      final entitlement = customerInfo.entitlements.all[_entitlementIdPro]!;
-      return SubscriptionStatus(
-        tier: 'pro',
-        isActive: true,
-        expiresAt: _stringFromDate(entitlement.expirationDate),
-        willRenew: entitlement.willRenew,
-      );
-    } else if (customerInfo.entitlements.all[_entitlementIdPremium]?.isActive == true) {
-      final entitlement = customerInfo.entitlements.all[_entitlementIdPremium]!;
-      return SubscriptionStatus(
-        tier: 'premium',
-        isActive: true,
-        expiresAt: _stringFromDate(entitlement.expirationDate),
-        willRenew: entitlement.willRenew,
-      );
-    } else {
-      return SubscriptionStatus(
-        tier: 'free',
-        isActive: false,
-        expiresAt: null,
-        willRenew: false,
-      );
-    }
-  }
-  
-  static Future<void> _handleCustomerInfoUpdate(CustomerInfo customerInfo) async {
-    final status = _parseCustomerInfo(customerInfo);
-    
-    // Update local storage
-    await StorageService.saveSubscriptionTier(status.tier);
-    
-    // Update Firebase
-    await _updateFirebaseSubscription(customerInfo);
-  }
-  
-  static Future<void> _updateFirebaseSubscription(CustomerInfo customerInfo) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final status = _parseCustomerInfo(customerInfo);
-
-    final entitlements = PlanEntitlements.effectiveLimits(status.tier);
-    final flags = PlanEntitlements.flags(status.tier);
-    final lifetime = PlanEntitlements.isLifetime(status.tier);
-
-    // Update user document
-    final expiresAt = status.expiresAt != null
-        ? DateTime.tryParse(status.expiresAt!)
-        : null;
-
-    await _firestore.collection('users').doc(user.uid).set({
-      'profile': {
-        'subscriptionTier': status.tier,
-        'subscriptionStatus': status.isActive ? 'active' : 'inactive',
-        'subscriptionProvider': 'revenuecat',
-        'subscriptionExpiresAt': expiresAt != null
-            ? Timestamp.fromDate(expiresAt.toUtc())
-            : null,
-        'subscriptionWillRenew': status.willRenew,
-        'subscriptionUpdatedAt': FieldValue.serverTimestamp(),
-        'subscriptionBillingTier': status.tier,
-        'effectiveLimits': entitlements,
-      }
-    }, SetOptions(merge: true));
-
-    final planPayload = {
-      'plan': status.tier,
-      'provider': 'revenuecat',
-      'effectiveLimits': entitlements,
-      'flags': flags,
-      'willRenew': status.willRenew,
-      'lifetime': lifetime,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    if (expiresAt != null && !lifetime) {
-      planPayload['expiresAt'] = Timestamp.fromDate(expiresAt.toUtc());
-    } else if (lifetime) {
-      planPayload['expiresAt'] = null;
-    }
-
-    await _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('plan')
-        .doc('active')
-        .set(planPayload, SetOptions(merge: true));
   }
 }
 
@@ -623,24 +313,18 @@ class SubscriptionStatus {
   final bool isActive;
   final String? expiresAt;
   final bool willRenew;
-  
+
   SubscriptionStatus({
     required this.tier,
     required this.isActive,
     this.expiresAt,
     required this.willRenew,
   });
-  
-  @override
-  String toString() {
-    return 'SubscriptionStatus(tier: $tier, active: $isActive, expires: $expiresAt)';
-  }
 }
 
 class PurchaseResult {
   final bool success;
   final String? error;
-  final CustomerInfo? customerInfo;
   final bool isWebPlatform;
   final String? redirectUrl;
   final String? webSessionId;
@@ -648,7 +332,6 @@ class PurchaseResult {
   PurchaseResult({
     required this.success,
     this.error,
-    this.customerInfo,
     this.isWebPlatform = false,
     this.redirectUrl,
     this.webSessionId,
@@ -661,7 +344,7 @@ class MockPackage {
   final String description;
   final String price;
   final bool isLifetime;
-  
+
   MockPackage({
     required this.identifier,
     required this.title,

@@ -15,6 +15,8 @@ import 'dream_journal_screen.dart';
 import 'sound_bath_screen.dart';
 import 'marketplace_screen.dart';
 import 'profile_screen.dart';
+import 'notification_screen.dart';
+import 'help_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,7 +97,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.notifications_none, color: AppTheme.crystalGlow),
+            tooltip: 'Notifications',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: AppTheme.crystalGlow),
+            tooltip: 'Help & Tutorials',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HelpScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.person_outline, color: AppTheme.crystalGlow),
+            tooltip: 'Profile',
             onPressed: () {
               Navigator.push(
                 context,
