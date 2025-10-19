@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../config/plan_entitlements.dart';
@@ -19,9 +20,17 @@ import 'storage_service.dart';
 /// payment completes. Local state is hydrated from Firestore and cached via
 /// `StorageService` for offline access.
 class EnhancedPaymentService {
-  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static FirebaseFunctions? get _functionsOrNull =>
+      Firebase.apps.isNotEmpty ? FirebaseFunctions.instance : null;
+  static FirebaseFirestore? get _firestoreOrNull =>
+      Firebase.apps.isNotEmpty ? FirebaseFirestore.instance : null;
+  static FirebaseAuth? get _authOrNull =>
+      Firebase.apps.isNotEmpty ? FirebaseAuth.instance : null;
+  static bool get _hasFirebaseApp => Firebase.apps.isNotEmpty;
+  static bool get _stripeBackendEnabled =>
+      _config.enableStripeCheckout &&
+      _config.stripePublishableKey.isNotEmpty &&
+      _hasFirebaseApp;
 
   static EnvironmentConfig get _config => EnvironmentConfig.instance;
 
@@ -43,6 +52,11 @@ class EnhancedPaymentService {
 
   static Future<void> initialize() async {
     if (_isInitialized) return;
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      _isInitialized = true;
+      return;
+    }
     await _hydrateCachedStatus(forceRefresh: true);
     _isInitialized = true;
   }
@@ -52,6 +66,11 @@ class EnhancedPaymentService {
   }) async {
     if (!_isInitialized) {
       await initialize();
+    }
+
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return _cachedStatus!;
     }
 
     await _hydrateCachedStatus(forceRefresh: forceRefresh);
@@ -103,14 +122,34 @@ class EnhancedPaymentService {
       throw Exception('Missing checkout session identifier.');
     }
 
-    final user = _auth.currentUser;
+    final auth = _authOrNull;
+    if (auth == null) {
+      throw Exception(
+        'Firebase Auth is not configured. Configure Firebase before verifying subscriptions.',
+      );
+    }
+
+    final user = auth.currentUser;
     if (user == null) {
       throw Exception('You must be signed in to verify subscriptions.');
     }
 
+    if (!_stripeBackendEnabled) {
+      throw Exception(
+        'Stripe checkout is disabled. Provide ENABLE_STRIPE_CHECKOUT=true and configure Firebase Functions.',
+      );
+    }
+
+    final functions = _functionsOrNull;
+    if (functions == null) {
+      throw Exception(
+        'Cloud Functions are not configured. Deploy Firebase Functions before verifying subscriptions.',
+      );
+    }
+
     try {
       final callable =
-          _functions.httpsCallable('finalizeStripeCheckoutSession');
+          functions.httpsCallable('finalizeStripeCheckoutSession');
       final response = await callable.call({'sessionId': sessionId});
       final data = Map<String, dynamic>.from(response.data as Map);
 
@@ -148,7 +187,8 @@ class EnhancedPaymentService {
   }
 
   static Future<void> enableFoundersAccountForTesting() async {
-    final user = _auth.currentUser;
+    final auth = _authOrNull;
+    final user = auth?.currentUser;
     if (user == null) return;
 
     await _applyPlanStatus(
@@ -171,11 +211,27 @@ class EnhancedPaymentService {
     String priceId,
     String tier,
   ) async {
-    final user = _auth.currentUser;
+    final auth = _authOrNull;
+    if (auth == null) {
+      return const PurchaseResult(
+        success: false,
+        error: 'Firebase Auth is not configured. Configure Firebase before purchasing.',
+      );
+    }
+
+    final user = auth.currentUser;
     if (user == null) {
       return const PurchaseResult(
         success: false,
         error: 'You must be signed in to start a subscription.',
+      );
+    }
+
+    if (!_stripeBackendEnabled) {
+      return const PurchaseResult(
+        success: false,
+        error:
+            'Stripe checkout is disabled. Enable ENABLE_STRIPE_CHECKOUT and Firebase Functions before purchasing.',
       );
     }
 
@@ -195,9 +251,18 @@ class EnhancedPaymentService {
       );
     }
 
+    final functions = _functionsOrNull;
+    if (functions == null) {
+      return const PurchaseResult(
+        success: false,
+        error:
+            'Cloud Functions are not configured. Deploy Firebase Functions before starting checkout.',
+      );
+    }
+
     try {
       final urls = _buildWebCheckoutUrls();
-      final callable = _functions.httpsCallable('createStripeCheckoutSession');
+      final callable = functions.httpsCallable('createStripeCheckoutSession');
       final response = await callable.call({
         'priceId': priceId,
         'tier': tier,
@@ -244,14 +309,26 @@ class EnhancedPaymentService {
       return;
     }
 
-    final user = _auth.currentUser;
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return;
+    }
+
+    final auth = _authOrNull;
+    final firestore = _firestoreOrNull;
+    if (auth == null || firestore == null) {
+      _cachedStatus = SubscriptionStatus.free();
+      return;
+    }
+
+    final user = auth.currentUser;
     if (user == null) {
       _cachedStatus = SubscriptionStatus.free();
       return;
     }
 
     try {
-      final snapshot = await _firestore.collection('users').doc(user.uid).get();
+      final snapshot = await firestore.collection('users').doc(user.uid).get();
       if (!snapshot.exists) {
         _cachedStatus = SubscriptionStatus.free();
         return;
@@ -277,7 +354,17 @@ class EnhancedPaymentService {
     required bool willRenew,
     String? expiresAtIso,
   }) async {
-    final user = _auth.currentUser;
+    if (!_stripeBackendEnabled) {
+      return;
+    }
+
+    final auth = _authOrNull;
+    final firestore = _firestoreOrNull;
+    if (auth == null || firestore == null) {
+      return;
+    }
+
+    final user = auth.currentUser;
     if (user == null) return;
 
     final entitlements = PlanEntitlements.effectiveLimits(tier);
@@ -301,7 +388,7 @@ class EnhancedPaymentService {
       profileUpdate['subscriptionExpiresAt'] = null;
     }
 
-    await _firestore.collection('users').doc(user.uid).set({
+    await firestore.collection('users').doc(user.uid).set({
       'profile': profileUpdate,
     }, SetOptions(merge: true));
 
@@ -322,7 +409,7 @@ class EnhancedPaymentService {
       planPayload['expiresAt'] = null;
     }
 
-    await _firestore
+    await firestore
         .collection('users')
         .doc(user.uid)
         .collection('plan')

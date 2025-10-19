@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
@@ -18,19 +19,56 @@ import 'screens/notification_screen.dart';
 import 'screens/help_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
+import 'services/environment_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase (fast)
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  
+
+  final environment = EnvironmentConfig.instance;
+  await _bootstrapFirebase(environment);
+
   // Initialize app service (async, non-blocking)
   AppService.instance.initialize();
-  
+
   runApp(const CrystalGrimoireApp());
+}
+
+Future<void> _bootstrapFirebase(EnvironmentConfig environment) async {
+  if (Firebase.apps.isNotEmpty) {
+    return;
+  }
+
+  FirebaseOptions? embeddedOptions;
+  try {
+    embeddedOptions = DefaultFirebaseOptions.currentPlatform;
+  } catch (error) {
+    debugPrint('⚠️  Firebase options unavailable for this platform: $error');
+  }
+
+  final hasEmbeddedOptions = embeddedOptions != null &&
+      embeddedOptions.apiKey.isNotEmpty &&
+      embeddedOptions.appId.isNotEmpty;
+  final shouldInitialize = environment.enableFirebaseAuth || hasEmbeddedOptions;
+
+  if (!shouldInitialize) {
+    debugPrint(
+      'Skipping Firebase bootstrap: provide FIREBASE_* dart-defines to enable cloud features.',
+    );
+    return;
+  }
+
+  if (embeddedOptions == null) {
+    debugPrint(
+      'Firebase bootstrap aborted: embedded options missing. Run flutterfire configure or supply custom options.',
+    );
+    return;
+  }
+
+  try {
+    await Firebase.initializeApp(options: embeddedOptions);
+  } catch (error) {
+    debugPrint('⚠️  Firebase initialization failed: $error');
+  }
 }
 
 class CrystalGrimoireApp extends StatelessWidget {

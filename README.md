@@ -12,7 +12,7 @@
 - Stripe checkout now powers subscriptions on every platform; provide publishable/secret keys plus Stripe price IDs before building. RevenueCat dependencies were removed, so native IAP flows are no longer required.【F:lib/services/enhanced_payment_service.dart†L1-L400】【F:functions/index.js†L900-L1150】
 - Callable Functions (`earnSeerCredits`, `generateHealingLayout`, `getMoonRituals`, `checkCrystalCompatibility`, etc.) exist but need valid config (Gemini/Stripe), quota monitoring, and error handling before exposing to real users.【F:lib/services/crystal_service.dart†L129-L276】【F:functions/index.js†L1760-L2335】
 - Firestore security rules require verified email addresses and strict document schemas; unauthenticated or unverified accounts will receive `permission-denied`.【F:firestore.rules†L1-L120】
-- The default widget test still references `MyApp`; update it to bootstrap `CrystalGrimoireApp` before enabling CI.【F:test/widget_test.dart†L12-L24】
+- Callable economy and Stripe flows are disabled by default. Provide Firebase Functions plus `--dart-define=ENABLE_ECONOMY_FUNCTIONS=true` and `ENABLE_STRIPE_CHECKOUT=true` before relying on Seer Credits or hosted checkout.【F:lib/services/economy_service.dart†L1-L260】【F:lib/services/enhanced_payment_service.dart†L1-L320】
 - Marketplace submissions enter a pending-review queue via the callable Function; admins (custom claim `role: admin`) can approve/reject listings from the in-app review tab, but payments remain stubbed.
 
 ## Quick Start (development)
@@ -36,7 +36,9 @@
    flutter run -d chrome \
      --dart-define=GEMINI_API_KEY=... \
      --dart-define=STRIPE_PUBLISHABLE_KEY=... \
-     --dart-define=OPENAI_API_KEY=... (optional)
+     --dart-define=OPENAI_API_KEY=... (optional) \
+     --dart-define=ENABLE_ECONOMY_FUNCTIONS=true (when Firebase Functions deployed) \
+     --dart-define=ENABLE_STRIPE_CHECKOUT=true (when Stripe checkout configured)
    ```
    Additional keys (Claude, Groq, RevenueCat) map to `EnvironmentConfig` if you plan to exercise those services.【F:lib/services/environment_config.dart†L1-L200】
 
