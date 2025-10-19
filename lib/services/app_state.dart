@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crystal.dart';
 import 'usage_tracker.dart';
@@ -18,8 +19,11 @@ class AppState extends ChangeNotifier {
   final List<Crystal> _crystalCollection = [];
   final List<CrystalIdentification> _recentIdentifications = [];
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseFirestore? get _firestore =>
+      Firebase.apps.isNotEmpty ? FirebaseFirestore.instance : null;
+  FirebaseAuth? get _auth =>
+      Firebase.apps.isNotEmpty ? FirebaseAuth.instance : null;
+  bool get _hasFirebase => Firebase.apps.isNotEmpty;
   SharedPreferences? _prefs;
   final Map<String, Crystal> _crystalLibraryCache = {};
   int _journalEntriesThisMonth = 0;
@@ -269,7 +273,16 @@ class AppState extends ChangeNotifier {
   // Private helper methods
   
   Future<void> _loadCrystalCollection() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final firestore = _firestore;
+
+    if (auth == null || firestore == null) {
+      debugPrint('Firestore unavailable – loading crystal collection from cache.');
+      await _loadCrystalCollectionFromCache();
+      return;
+    }
+
+    final user = auth.currentUser;
 
     if (user == null) {
       await _loadCrystalCollectionFromCache();
@@ -277,7 +290,7 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final snapshot = await _firestore
+      final snapshot = await firestore
           .collection('users')
           .doc(user.uid)
           .collection('collection')
@@ -334,7 +347,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadRecentIdentifications() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final firestore = _firestore;
+
+    if (auth == null || firestore == null) {
+      debugPrint('Firestore unavailable – using cached identifications.');
+      await _loadRecentIdentificationsFromCache();
+      return;
+    }
+
+    final user = auth.currentUser;
 
     if (user == null) {
       await _loadRecentIdentificationsFromCache();
@@ -344,7 +366,7 @@ class AppState extends ChangeNotifier {
     try {
       QuerySnapshot<Map<String, dynamic>> snapshot;
       try {
-        snapshot = await _firestore
+        snapshot = await firestore
             .collection('users')
             .doc(user.uid)
             .collection('identifications')
@@ -354,7 +376,7 @@ class AppState extends ChangeNotifier {
       } on FirebaseException catch (e) {
         if (e.code == 'failed-precondition' ||
             (e.message?.toLowerCase().contains('createdat') ?? false)) {
-          snapshot = await _firestore
+          snapshot = await firestore
               .collection('users')
               .doc(user.uid)
               .collection('identifications')
@@ -425,11 +447,18 @@ class AppState extends ChangeNotifier {
   Future<void> _loadSettingsFromProfile() async {
     await _loadSettingsFromCache();
 
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final firestore = _firestore;
+    if (auth == null || firestore == null) {
+      debugPrint('Firestore unavailable – using cached settings only.');
+      return;
+    }
+
+    final user = auth.currentUser;
     if (user == null) return;
 
     try {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final doc = await firestore.collection('users').doc(user.uid).get();
       final settings = Map<String, dynamic>.from(doc.data()?['settings'] ?? {});
       _notificationsEnabled = settings['notifications'] ?? _notificationsEnabled;
       _soundEnabled = settings['sound'] ?? settings['soundEnabled'] ?? _soundEnabled;
@@ -466,11 +495,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistSettingsToFirestore() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final firestore = _firestore;
+    if (auth == null || firestore == null) {
+      return;
+    }
+
+    final user = auth.currentUser;
     if (user == null) return;
 
     try {
-      await _firestore.collection('users').doc(user.uid).set({
+      await firestore.collection('users').doc(user.uid).set({
         'settings': {
           'notifications': _notificationsEnabled,
           'sound': _soundEnabled,
@@ -483,13 +518,20 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadUsageTracking() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final firestore = _firestore;
+    if (auth == null || firestore == null) {
+      _journalEntriesThisMonth = 0;
+      return;
+    }
+
+    final user = auth.currentUser;
     if (user == null) return;
 
     try {
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month);
-      final snapshot = await _firestore
+      final snapshot = await firestore
           .collection('users')
           .doc(user.uid)
           .collection('journal')
@@ -520,34 +562,39 @@ class AppState extends ChangeNotifier {
       return _crystalLibraryCache[key]!;
     }
 
-    DocumentReference<Map<String, dynamic>> docRef;
-    if (key.contains('/')) {
-      docRef = _firestore.doc(key);
-    } else {
-      docRef = _firestore.collection('crystal_library').doc(
-        key.isNotEmpty ? key : _slugify('mystery'),
-      );
+    final firestore = _firestore;
+    DocumentReference<Map<String, dynamic>>? docRef;
+    if (firestore != null) {
+      if (key.contains('/')) {
+        docRef = firestore.doc(key);
+      } else {
+        docRef = firestore.collection('crystal_library').doc(
+          key.isNotEmpty ? key : _slugify('mystery'),
+        );
+      }
     }
 
     try {
-      final snapshot = await docRef.get();
-      final data = snapshot.data();
-      if (data != null) {
-        final payload = Map<String, dynamic>.from(data)
-          ..putIfAbsent('id', () => snapshot.id)
-          ..putIfAbsent('name', () => 'Mystery Crystal')
-          ..putIfAbsent('scientificName', () => '')
-          ..putIfAbsent('description', () => '')
-          ..putIfAbsent('careInstructions', () => '')
-          ..putIfAbsent('metaphysicalProperties', () => const <String>[])
-          ..putIfAbsent('healingProperties', () => const <String>[])
-          ..putIfAbsent('chakras', () => const <String>[])
-          ..putIfAbsent('elements', () => const <String>[])
-          ..putIfAbsent('imageUrls', () => const <String>[]);
+      if (docRef != null) {
+        final snapshot = await docRef.get();
+        final data = snapshot.data();
+        if (data != null) {
+          final payload = Map<String, dynamic>.from(data)
+            ..putIfAbsent('id', () => snapshot.id)
+            ..putIfAbsent('name', () => 'Mystery Crystal')
+            ..putIfAbsent('scientificName', () => '')
+            ..putIfAbsent('description', () => '')
+            ..putIfAbsent('careInstructions', () => '')
+            ..putIfAbsent('metaphysicalProperties', () => const <String>[])
+            ..putIfAbsent('healingProperties', () => const <String>[])
+            ..putIfAbsent('chakras', () => const <String>[])
+            ..putIfAbsent('elements', () => const <String>[])
+            ..putIfAbsent('imageUrls', () => const <String>[]);
 
-        final crystal = Crystal.fromJson(payload);
-        _crystalLibraryCache[key.isNotEmpty ? key : payload['id'].toString()] = crystal;
-        return crystal;
+          final crystal = Crystal.fromJson(payload);
+          _crystalLibraryCache[key.isNotEmpty ? key : payload['id'].toString()] = crystal;
+          return crystal;
+        }
       }
     } catch (e) {
       print('Failed to load crystal library reference "$key": $e');

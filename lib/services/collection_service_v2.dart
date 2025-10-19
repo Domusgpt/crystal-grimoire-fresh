@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../models/crystal_collection.dart';
 import '../models/crystal.dart';
 
@@ -20,8 +21,9 @@ class CollectionServiceV2 extends ChangeNotifier {
   String? _lastError;
   String? _userId;
   StreamSubscription<User?>? _authSubscription;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+  bool get _hasFirebaseApp => Firebase.apps.isNotEmpty;
   final Map<String, Crystal> _libraryCache = {};
   
   /// Get the current collection
@@ -45,6 +47,14 @@ class CollectionServiceV2 extends ChangeNotifier {
 
     try {
       await _loadFromLocal();
+      if (!_hasFirebaseApp) {
+        _lastError =
+            'Firebase not configured. Collection sync is running in offline mode.';
+        _isLoaded = true;
+        notifyListeners();
+        return;
+      }
+
       _authSubscription = _auth.authStateChanges().listen(_handleAuthChange);
       await _handleAuthChange(_auth.currentUser);
       _isLoaded = true;
@@ -82,6 +92,10 @@ class CollectionServiceV2 extends ChangeNotifier {
   }
 
   Future<void> _handleAuthChange(User? user) async {
+    if (!_hasFirebaseApp) {
+      return;
+    }
+
     _userId = user?.uid;
 
     if (user == null) {
@@ -102,6 +116,12 @@ class CollectionServiceV2 extends ChangeNotifier {
       _firestore.collection('users').doc(uid).collection('collectionLogs');
 
   Future<void> _loadFromBackend(String uid) async {
+    if (!_hasFirebaseApp) {
+      _lastError = 'Firebase not configured. Unable to sync collection.';
+      notifyListeners();
+      return;
+    }
+
     try {
       final collectionSnapshot = await _collectionRef(uid)
           .orderBy('addedAt', descending: true)

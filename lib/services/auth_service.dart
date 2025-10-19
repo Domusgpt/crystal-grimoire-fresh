@@ -1,18 +1,31 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+
+import 'environment_config.dart';
 import 'storage_service.dart';
 
 class AuthService extends ChangeNotifier {
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final GoogleSignIn _googleSignIn = GoogleSignIn.instance; // Modern 7.x singleton pattern
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+  static FirebaseAuth get _auth => FirebaseAuth.instance;
+  static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  static FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(region: 'us-central1');
+  static GoogleSignIn get _googleSignIn => GoogleSignIn.instance;
   static bool _isGoogleSignInInitialized = false;
+
+  static EnvironmentConfig get _config => EnvironmentConfig.instance;
+
+  static bool get _supportsFirebaseAuth =>
+      Firebase.apps.isNotEmpty || _config.enableFirebaseAuth;
+
+  static bool get _supportsGoogle => !kIsWeb;
   
   // Stream of auth state changes
   static Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -29,6 +42,10 @@ class AuthService extends ChangeNotifier {
     required String password,
     required String displayName,
   }) async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -52,6 +69,10 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     try {
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
@@ -69,6 +90,10 @@ class AuthService extends ChangeNotifier {
   
   // Initialize Google Sign-In (required in 7.x)
   static Future<void> _initializeGoogleSignIn() async {
+    if (!_supportsGoogle) {
+      throw Exception('Google Sign-In is not supported on this platform.');
+    }
+
     if (!_isGoogleSignInInitialized) {
       try {
         await _googleSignIn.initialize();
@@ -83,6 +108,10 @@ class AuthService extends ChangeNotifier {
 
   // Sign in with Google - Modern 7.x API with Firebase integration
   static Future<UserCredential?> signInWithGoogle() async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     try {
       print('🔑 Starting Google Sign-In 7.x process...');
       
@@ -139,6 +168,14 @@ class AuthService extends ChangeNotifier {
   
   // Sign in with Apple
   static Future<UserCredential?> signInWithApple() async {
+    if (kIsWeb) {
+      throw Exception('Apple Sign-In is not available on web.');
+    }
+
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     try {
       print('🍎 Starting Apple Sign-In process...');
       
@@ -248,6 +285,10 @@ class AuthService extends ChangeNotifier {
   
   // Delete account
   static Future<void> deleteAccount() async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     final user = _auth.currentUser;
     if (user == null) return;
 
@@ -266,6 +307,10 @@ class AuthService extends ChangeNotifier {
   
   // Reset password
   static Future<void> resetPassword(String email) async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     try {
       await _auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
@@ -278,11 +323,19 @@ class AuthService extends ChangeNotifier {
   
   // Send email verification
   static Future<void> sendEmailVerification() async {
+    if (!_supportsFirebaseAuth) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
     await _auth.currentUser?.sendEmailVerification();
   }
-  
+
   // Get ID token for backend authentication
   static Future<String?> getIdToken() async {
+    if (!_supportsFirebaseAuth) {
+      return null;
+    }
+
     return await _auth.currentUser?.getIdToken();
   }
   
@@ -308,6 +361,10 @@ class AuthService extends ChangeNotifier {
   }
 
   static Future<void> _createUserDocumentLocally(User user) async {
+    if (!_supportsFirebaseAuth) {
+      return;
+    }
+
     final userDoc = _firestore.collection('users').doc(user.uid);
     final snapshot = await userDoc.get();
     final existingData = snapshot.data();
@@ -386,6 +443,10 @@ class AuthService extends ChangeNotifier {
   }
 
   static Future<void> _syncUserData(User user) async {
+    if (!_supportsFirebaseAuth) {
+      return;
+    }
+
     final docRef = _firestore.collection('users').doc(user.uid);
     final userDoc = await docRef.get();
 
