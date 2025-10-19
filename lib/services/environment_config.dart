@@ -53,6 +53,10 @@ class EnvironmentConfig {
   static const String _backendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
   static const bool _useLocalBackend =
       bool.fromEnvironment('USE_LOCAL_BACKEND', defaultValue: false);
+  static const bool _enableEconomyFunctions =
+      bool.fromEnvironment('ENABLE_ECONOMY_FUNCTIONS', defaultValue: false);
+  static const bool _enableStripeCheckout =
+      bool.fromEnvironment('ENABLE_STRIPE_CHECKOUT', defaultValue: false);
   static const String _termsUrl = String.fromEnvironment('TERMS_URL', defaultValue: '');
   static const String _privacyUrl = String.fromEnvironment('PRIVACY_URL', defaultValue: '');
   static const String _supportUrl = String.fromEnvironment('SUPPORT_URL', defaultValue: '');
@@ -128,6 +132,10 @@ class EnvironmentConfig {
   bool get enableMarketplace => stripePublishableKey.isNotEmpty;
   bool get enableDailyHoroscope => horoscopeApiKey.isNotEmpty;
   bool get enableFirebaseAuth => firebaseApiKey.isNotEmpty;
+  bool get enableEconomyFunctions =>
+      _enableEconomyFunctions && firebaseApiKey.isNotEmpty;
+  bool get enableStripeCheckout =>
+      _enableStripeCheckout && stripePublishableKey.isNotEmpty;
   
   // Configuration validation
   List<String> validateConfiguration() {
@@ -152,6 +160,15 @@ class EnvironmentConfig {
 
     if (revenueCatApiKey.isEmpty) {
       issues.add('RevenueCat API key not configured - mobile subscription purchases will be disabled');
+    }
+
+    if (_enableEconomyFunctions && firebaseApiKey.isEmpty) {
+      issues.add('ENABLE_ECONOMY_FUNCTIONS is true but Firebase is not configured.');
+    }
+
+    if (_enableStripeCheckout &&
+        (stripePublishableKey.isEmpty || firebaseApiKey.isEmpty)) {
+      issues.add('ENABLE_STRIPE_CHECKOUT is true but Stripe/Firebase configuration is incomplete.');
     }
 
     if (isProduction &&
@@ -184,6 +201,8 @@ class EnvironmentConfig {
         'marketplace': enableMarketplace,
         'daily_horoscope': enableDailyHoroscope,
         'firebase_auth': enableFirebaseAuth,
+        'economy_functions': enableEconomyFunctions,
+        'stripe_checkout': enableStripeCheckout,
       },
       'ads': {
         'android_banner': admobAndroidBannerId.isNotEmpty ? 'configured' : 'using_test_id',

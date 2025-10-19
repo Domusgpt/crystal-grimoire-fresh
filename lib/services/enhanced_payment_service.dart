@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../config/plan_entitlements.dart';
@@ -19,9 +20,14 @@ import 'storage_service.dart';
 /// payment completes. Local state is hydrated from Firestore and cached via
 /// `StorageService` for offline access.
 class EnhancedPaymentService {
-  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static FirebaseFunctions get _functions => FirebaseFunctions.instance;
+  static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  static FirebaseAuth get _auth => FirebaseAuth.instance;
+  static bool get _hasFirebaseApp => Firebase.apps.isNotEmpty;
+  static bool get _stripeBackendEnabled =>
+      _config.enableStripeCheckout &&
+      _config.stripePublishableKey.isNotEmpty &&
+      _hasFirebaseApp;
 
   static EnvironmentConfig get _config => EnvironmentConfig.instance;
 
@@ -43,6 +49,11 @@ class EnhancedPaymentService {
 
   static Future<void> initialize() async {
     if (_isInitialized) return;
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      _isInitialized = true;
+      return;
+    }
     await _hydrateCachedStatus(forceRefresh: true);
     _isInitialized = true;
   }
@@ -52,6 +63,11 @@ class EnhancedPaymentService {
   }) async {
     if (!_isInitialized) {
       await initialize();
+    }
+
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return _cachedStatus!;
     }
 
     await _hydrateCachedStatus(forceRefresh: forceRefresh);
@@ -106,6 +122,12 @@ class EnhancedPaymentService {
     final user = _auth.currentUser;
     if (user == null) {
       throw Exception('You must be signed in to verify subscriptions.');
+    }
+
+    if (!_stripeBackendEnabled) {
+      throw Exception(
+        'Stripe checkout is disabled. Provide ENABLE_STRIPE_CHECKOUT=true and configure Firebase Functions.',
+      );
     }
 
     try {
@@ -179,6 +201,14 @@ class EnhancedPaymentService {
       );
     }
 
+    if (!_stripeBackendEnabled) {
+      return const PurchaseResult(
+        success: false,
+        error:
+            'Stripe checkout is disabled. Enable ENABLE_STRIPE_CHECKOUT and Firebase Functions before purchasing.',
+      );
+    }
+
     if (_config.stripePublishableKey.isEmpty) {
       return const PurchaseResult(
         success: false,
@@ -244,6 +274,11 @@ class EnhancedPaymentService {
       return;
     }
 
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return;
+    }
+
     final user = _auth.currentUser;
     if (user == null) {
       _cachedStatus = SubscriptionStatus.free();
@@ -277,6 +312,10 @@ class EnhancedPaymentService {
     required bool willRenew,
     String? expiresAtIso,
   }) async {
+    if (!_stripeBackendEnabled) {
+      return;
+    }
+
     final user = _auth.currentUser;
     if (user == null) return;
 

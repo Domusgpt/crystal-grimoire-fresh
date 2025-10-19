@@ -1,10 +1,22 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+
+import 'environment_config.dart';
 
 class EconomyService extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  EconomyService({EnvironmentConfig? config})
+      : _config = config ?? EnvironmentConfig();
+
+  final EnvironmentConfig _config;
+
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  FirebaseFunctions get _functions => FirebaseFunctions.instance;
+
+  bool get _hasFirebaseApp => Firebase.apps.isNotEmpty;
+  bool get _economyEnabled =>
+      _config.enableEconomyFunctions && _hasFirebaseApp;
   
   // Current user's economy data
   int _seerCredits = 0;
@@ -49,6 +61,15 @@ class EconomyService extends ChangeNotifier {
 
   /// Initialize economy for user
   Future<void> initializeForUser(String userId) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service disabled. Configure Firebase Functions and set '
+          'ENABLE_ECONOMY_FUNCTIONS=true to enable Seer Credits.';
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
@@ -125,6 +146,13 @@ class EconomyService extends ChangeNotifier {
     required String action,
     Map<String, dynamic>? metadata,
   }) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service unavailable. Enable Firebase Functions to earn credits.';
+      notifyListeners();
+      return false;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
@@ -201,6 +229,13 @@ class EconomyService extends ChangeNotifier {
     required String action,
     Map<String, dynamic>? metadata,
   }) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service unavailable. Enable Firebase Functions to spend credits.';
+      notifyListeners();
+      return false;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
