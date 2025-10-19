@@ -3,7 +3,7 @@
   "description": "🔮 Crystal Grimoire Cloud Functions - AI-powered crystal identification and mystical guidance",
   "version": "1.0.0",
   "engines": {
-    "node": "22"
+    "node": "20"
   },
   "main": "index.js",
   "dependencies": {
