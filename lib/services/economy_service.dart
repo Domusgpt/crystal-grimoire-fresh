@@ -1,10 +1,26 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+
+import 'environment_config.dart';
+import 'firebase_guard.dart';
 
 class EconomyService extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  EconomyService({EnvironmentConfig? config})
+      : _config = config ?? EnvironmentConfig();
+
+  final EnvironmentConfig _config;
+
+  FirebaseFirestore? get _firestore => FirebaseGuard.firestore;
+  FirebaseFunctions? get _functions => FirebaseGuard.functions();
+
+  bool get _hasFirebaseApp => FirebaseGuard.isConfigured;
+  bool get _economyEnabled =>
+      _config.enableEconomyFunctions &&
+      _hasFirebaseApp &&
+      _firestore != null &&
+      _functions != null;
   
   // Current user's economy data
   int _seerCredits = 0;
@@ -49,13 +65,31 @@ class EconomyService extends ChangeNotifier {
 
   /// Initialize economy for user
   Future<void> initializeForUser(String userId) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service disabled. Configure Firebase Functions and set '
+          'ENABLE_ECONOMY_FUNCTIONS=true to enable Seer Credits.';
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
 
       // Get or create user economy document
-      final economyRef = _firestore.collection('users').doc(userId).collection('economy').doc('credits');
+      final store = _firestore;
+      if (store == null) {
+        _errorMessage = 'Firebase Firestore is not available.';
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      final economyRef =
+          store.collection('users').doc(userId).collection('economy').doc('credits');
       final economySnapshot = await economyRef.get();
 
       if (economySnapshot.exists) {
@@ -125,6 +159,13 @@ class EconomyService extends ChangeNotifier {
     required String action,
     Map<String, dynamic>? metadata,
   }) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service unavailable. Enable Firebase Functions to earn credits.';
+      notifyListeners();
+      return false;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
@@ -154,7 +195,14 @@ class EconomyService extends ChangeNotifier {
       final creditsToEarn = earnRates[action]!;
 
       // Use Cloud Function for server-side validation and atomic update
-      final callable = _functions.httpsCallable('earnSeerCredits');
+      final callable = _functions?.httpsCallable('earnSeerCredits');
+      if (callable == null) {
+        _errorMessage = 'Firebase Functions are not available.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       final result = await callable.call({
         'action': action,
         'creditsToEarn': creditsToEarn,
@@ -201,6 +249,13 @@ class EconomyService extends ChangeNotifier {
     required String action,
     Map<String, dynamic>? metadata,
   }) async {
+    if (!_economyEnabled) {
+      _errorMessage =
+          'Economy service unavailable. Enable Firebase Functions to spend credits.';
+      notifyListeners();
+      return false;
+    }
+
     try {
       _isLoading = true;
       _errorMessage = null;
@@ -225,7 +280,13 @@ class EconomyService extends ChangeNotifier {
       }
 
       // Use Cloud Function for server-side validation and atomic update
-      final callable = _functions.httpsCallable('spendSeerCredits');
+      final callable = _functions?.httpsCallable('spendSeerCredits');
+      if (callable == null) {
+        _errorMessage = 'Firebase Functions are not available.';
+        notifyListeners();
+        return false;
+      }
+
       final result = await callable.call({
         'action': action,
         'creditsToSpend': creditsToSpend,
@@ -272,7 +333,12 @@ class EconomyService extends ChangeNotifier {
     required int amount,
     Map<String, dynamic>? metadata,
   }) async {
-    await _firestore
+    final store = _firestore;
+    if (store == null) {
+      return;
+    }
+
+    await store
         .collection('users')
         .doc(userId)
         .collection('transactions')
@@ -289,7 +355,12 @@ class EconomyService extends ChangeNotifier {
   /// Get user's transaction history
   Future<List<Map<String, dynamic>>> getTransactionHistory(String userId, {int limit = 20}) async {
     try {
-      final querySnapshot = await _firestore
+      final store = _firestore;
+      if (store == null) {
+        return const [];
+      }
+
+      final querySnapshot = await store
           .collection('users')
           .doc(userId)
           .collection('transactions')
