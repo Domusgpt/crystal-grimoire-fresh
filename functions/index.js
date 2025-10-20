@@ -3,12 +3,18 @@
  * Authentication, user management, and crystal identification with Gemini AI
  */
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { config } = require('firebase-functions/v1');
+const {
+  USAGE_LIMIT_MAPPING,
+  resolvePlanDetails,
+  buildPlanStatusResponse,
+} = require('./src/plan_catalog');
+const { withMonitoring } = require('./src/monitoring');
 
 // Initialize Firebase Admin
 initializeApp();
@@ -36,60 +42,6 @@ if (stripeConfig.pro_price_id) {
 if (stripeConfig.founders_price_id) {
   stripePriceMapping.set(stripeConfig.founders_price_id, { tier: 'founders', mode: 'payment' });
 }
-
-const PLAN_DETAILS = {
-  free: {
-    plan: 'free',
-    effectiveLimits: {
-      identifyPerDay: 3,
-      guidancePerDay: 1,
-      journalMax: 50,
-      collectionMax: 50,
-    },
-    flags: ['free'],
-    lifetime: false,
-  },
-  premium: {
-    plan: 'premium',
-    effectiveLimits: {
-      identifyPerDay: 15,
-      guidancePerDay: 5,
-      journalMax: 200,
-      collectionMax: 250,
-    },
-    flags: ['stripe', 'priority_support'],
-    lifetime: false,
-  },
-  pro: {
-    plan: 'pro',
-    effectiveLimits: {
-      identifyPerDay: 40,
-      guidancePerDay: 15,
-      journalMax: 500,
-      collectionMax: 1000,
-    },
-    flags: ['stripe', 'priority_support', 'advanced_ai'],
-    lifetime: false,
-  },
-  founders: {
-    plan: 'founders',
-    effectiveLimits: {
-      identifyPerDay: 999,
-      guidancePerDay: 200,
-      journalMax: 2000,
-      collectionMax: 2000,
-    },
-    flags: ['stripe', 'lifetime', 'founder'],
-    lifetime: true,
-  },
-};
-
-const PLAN_ALIASES = {
-  explorer: 'free',
-  emissary: 'premium',
-  ascended: 'pro',
-  esper: 'founders',
-};
 
 const ECONOMY_EARN_RULES = {
   onboarding_complete: 3,
@@ -835,17 +787,296 @@ function toDailyCrystalPayload(entry) {
   };
 }
 
-function resolvePlanDetails(tier) {
-  const normalized = (tier || 'free').toString().trim().toLowerCase();
-  const key = PLAN_DETAILS[normalized] ? normalized : PLAN_ALIASES[normalized] || 'free';
-  const details = PLAN_DETAILS[key] || PLAN_DETAILS.free;
+async function resolveUserPlan(uid) {
+  if (!uid) {
+    return resolvePlanDetails('free');
+  }
+
+  try {
+    const [planSnap, profileSnap] = await Promise.all([
+      db.collection('users').doc(uid).collection('plan').doc('active').get(),
+      db.collection('users').doc(uid).get(),
+    ]);
+
+    let tier = null;
+
+    if (planSnap.exists) {
+      const planData = planSnap.data() || {};
+      if (typeof planData.plan === 'string') {
+        tier = planData.plan;
+      } else if (typeof planData.billingTier === 'string') {
+        tier = planData.billingTier;
+      }
+    }
+
+    if (!tier && profileSnap.exists) {
+      const profileData = profileSnap.data() || {};
+      if (profileData.profile && typeof profileData.profile.subscriptionTier === 'string') {
+        tier = profileData.profile.subscriptionTier;
+      }
+    }
+
+    return resolvePlanDetails(tier || 'free');
+  } catch (error) {
+    console.warn('⚠️ Failed to resolve user plan, defaulting to free tier:', error.message);
+    return resolvePlanDetails('free');
+  }
+}
+
+async function assertUsageQuota(uid, actionKey) {
+  const definition = USAGE_LIMIT_MAPPING[actionKey];
+  if (!definition) {
+    return { plan: resolvePlanDetails('free'), limit: Number.POSITIVE_INFINITY };
+  }
+
+  const planDetails = await resolveUserPlan(uid);
+  const limit = Number(planDetails.effectiveLimits?.[definition.limitKey] ?? 0);
+
+  if (!Number.isFinite(limit) || limit <= 0) {
+    throw new HttpsError('permission-denied', 'Your current plan does not include this feature.');
+  }
+
+  const usageRef = db.collection('usage').doc(uid);
+  const today = new Date().toISOString().split('T')[0];
+  let updatedCounts = null;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(usageRef);
+    const data = snapshot.exists ? snapshot.data() || {} : {};
+
+    const lastReset = data.lastResetDate || today;
+    const dailyCounts = lastReset === today ? { ...(data.dailyCounts || {}) } : {};
+    const lifetimeCounts = { ...(data.lifetimeCounts || {}) };
+
+    const usageField = definition.usageField;
+    const currentCount = Number(dailyCounts[usageField] || 0);
+
+    if (currentCount >= limit) {
+      throw new HttpsError('resource-exhausted', `Daily limit reached for ${definition.description}.`);
+    }
+
+    dailyCounts[usageField] = currentCount + 1;
+    lifetimeCounts[usageField] = Number(lifetimeCounts[usageField] || 0) + 1;
+
+    transaction.set(usageRef, {
+      uid,
+      dailyCounts,
+      lifetimeCounts,
+      lastResetDate: today,
+      planTier: planDetails.plan,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    updatedCounts = { dailyCounts, lifetimeCounts };
+  });
+
   return {
-    plan: details.plan,
-    effectiveLimits: { ...details.effectiveLimits },
-    flags: [...details.flags],
-    lifetime: details.lifetime,
-    tier: key,
+    plan: planDetails,
+    limit,
+    usage: updatedCounts,
   };
+}
+
+function ensureGeminiConfigured() {
+  if (!config().gemini || !config().gemini.api_key) {
+    throw new HttpsError('failed-precondition', 'Gemini is not configured. Set functions:config:set gemini.api_key=YOUR_KEY.');
+  }
+}
+
+async function applyPlanToUser(uid, targetTier, options = {}) {
+  if (!uid) {
+    throw new HttpsError('invalid-argument', 'A user identifier is required to apply subscriptions.');
+  }
+
+  const planDetails = resolvePlanDetails(targetTier);
+  const provider = options.provider || 'stripe';
+  const priceId = options.priceId || null;
+  const willRenew = options.willRenew === true;
+  const status = options.status || 'active';
+  const expiresAtIso = options.expiresAtIso || null;
+
+  let expiresAtTimestamp = null;
+  if (expiresAtIso) {
+    const parsed = new Date(expiresAtIso);
+    if (!Number.isNaN(parsed.getTime())) {
+      expiresAtTimestamp = Timestamp.fromDate(parsed);
+    }
+  }
+
+  const userRef = db.collection('users').doc(uid);
+
+  const profileUpdate = {
+    'profile.subscriptionTier': planDetails.plan,
+    'profile.subscriptionStatus': status,
+    'profile.subscriptionProvider': provider,
+    'profile.subscriptionBillingTier': planDetails.tier,
+    'profile.subscriptionWillRenew': willRenew,
+    'profile.subscriptionUpdatedAt': FieldValue.serverTimestamp(),
+    'profile.effectiveLimits': planDetails.effectiveLimits,
+  };
+
+  if (expiresAtTimestamp) {
+    profileUpdate['profile.subscriptionExpiresAt'] = expiresAtTimestamp;
+  } else if (planDetails.lifetime) {
+    profileUpdate['profile.subscriptionExpiresAt'] = null;
+  } else {
+    profileUpdate['profile.subscriptionExpiresAt'] = FieldValue.delete();
+  }
+
+  await userRef.set(profileUpdate, { merge: true });
+
+  const planDocument = {
+    plan: planDetails.plan,
+    billingTier: planDetails.tier,
+    provider,
+    priceId,
+    effectiveLimits: planDetails.effectiveLimits,
+    flags: planDetails.flags,
+    willRenew,
+    lifetime: planDetails.lifetime,
+    status,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (expiresAtTimestamp) {
+    planDocument.expiresAt = expiresAtTimestamp;
+  } else if (planDetails.lifetime) {
+    planDocument.expiresAt = null;
+  }
+
+  await userRef.collection('plan').doc('active').set(planDocument, { merge: true });
+
+  return { planDetails, expiresAtTimestamp };
+}
+
+exports.getPlanStatus = onCall(
+  { cors: true, timeoutSeconds: 15 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to review your plan status.');
+    }
+
+    const uid = request.auth.uid;
+    const planDetails = await resolveUserPlan(uid);
+    const usageSnap = await db.collection('usage').doc(uid).get();
+    const usageData = usageSnap.exists ? usageSnap.data() || {} : {};
+
+    return buildPlanStatusResponse(planDetails, usageData);
+  }
+);
+
+async function handleStripeCheckoutCompleted(session) {
+  if (!session || !session.id) {
+    console.warn('⚠️ Checkout session payload missing identifier.');
+    return;
+  }
+
+  const expanded = await stripeClient.checkout.sessions.retrieve(session.id, {
+    expand: ['line_items', 'subscription'],
+  });
+
+  const uid = expanded.metadata?.uid || expanded.client_reference_id;
+  if (!uid) {
+    console.warn('⚠️ Checkout session missing user metadata.');
+    return;
+  }
+
+  const lineItems = expanded.line_items?.data || [];
+  const priceId = expanded.metadata?.priceId
+    || (lineItems.length > 0 && lineItems[0].price ? lineItems[0].price.id : null);
+
+  const tierHint = expanded.metadata?.tier;
+  const priceMeta = resolvePriceMetadata(priceId, tierHint);
+  if (!priceMeta) {
+    console.warn(`⚠️ Unable to resolve tier for checkout session ${expanded.id}.`);
+    return;
+  }
+
+  let expiresAtIso = null;
+  let willRenew = false;
+  if (expanded.mode === 'subscription') {
+    const subscription = typeof expanded.subscription === 'string'
+      ? await stripeClient.subscriptions.retrieve(expanded.subscription)
+      : expanded.subscription;
+
+    if (subscription?.current_period_end) {
+      expiresAtIso = new Date(subscription.current_period_end * 1000).toISOString();
+    }
+    willRenew = subscription?.cancel_at_period_end === false;
+    await handleStripeSubscriptionEvent(subscription, 'customer.subscription.updated');
+  } else {
+    await applyPlanToUser(uid, priceMeta.tier, {
+      provider: 'stripe',
+      priceId,
+      willRenew: false,
+      expiresAtIso: null,
+      status: 'active',
+    });
+  }
+
+  await db.collection('checkoutSessions').doc(expanded.id).set({
+    uid,
+    tier: priceMeta.tier,
+    priceId,
+    status: expanded.status,
+    mode: expanded.mode,
+    paymentStatus: expanded.payment_status,
+    completedAt: FieldValue.serverTimestamp(),
+    willRenew,
+    expiresAt: expiresAtIso,
+  }, { merge: true });
+}
+
+async function handleStripeSubscriptionEvent(subscription, eventType) {
+  if (!subscription || !subscription.id) {
+    console.warn('⚠️ Subscription event missing subscription payload.');
+    return;
+  }
+
+  const metadata = subscription.metadata || {};
+  const uid = metadata.uid;
+
+  if (!uid) {
+    console.warn(`⚠️ Subscription ${subscription.id} missing uid metadata.`);
+    return;
+  }
+
+  const item = subscription.items?.data?.[0];
+  const priceId = item?.price?.id || null;
+  const tierHint = metadata.tier || metadata.plan;
+  const priceMeta = resolvePriceMetadata(priceId, tierHint);
+  if (!priceMeta) {
+    console.warn(`⚠️ Unable to resolve price metadata for subscription ${subscription.id}.`);
+    return;
+  }
+
+  const expiresAtIso = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : null;
+
+  const willRenew = subscription.cancel_at_period_end === false
+    && subscription.status !== 'canceled';
+
+  const status = subscription.status === 'canceled'
+    || eventType === 'customer.subscription.deleted'
+    ? 'cancelled'
+    : 'active';
+
+  await applyPlanToUser(uid, priceMeta.tier, {
+    provider: 'stripe',
+    priceId,
+    willRenew,
+    expiresAtIso,
+    status,
+  });
+
+  await db.collection('users').doc(uid).collection('plan').doc('active').set({
+    subscriptionId: subscription.id,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+    cancellationEffectiveAt: subscription.cancel_at
+      ? Timestamp.fromDate(new Date(subscription.cancel_at * 1000))
+      : FieldValue.delete(),
+  }, { merge: true });
 }
 
 function ensureStripeConfigured() {
@@ -945,7 +1176,7 @@ exports.healthCheck = onCall({ cors: true, invoker: 'public' }, async (request) 
 
 exports.createStripeCheckoutSession = onCall(
   { cors: true, region: 'us-central1', enforceAppCheck: true },
-  async (request) => {
+  withMonitoring('createStripeCheckoutSession', async (request) => {
     ensureStripeConfigured();
 
     if (!request.auth) {
@@ -1029,12 +1260,12 @@ exports.createStripeCheckoutSession = onCall(
       console.error('❌ Stripe checkout error:', error);
       throw new HttpsError('internal', error.message || 'Failed to start checkout session.');
     }
-  }
+  })
 );
 
 exports.finalizeStripeCheckoutSession = onCall(
   { cors: true, region: 'us-central1', enforceAppCheck: true },
-  async (request) => {
+  withMonitoring('finalizeStripeCheckoutSession', async (request) => {
     ensureStripeConfigured();
 
     if (!request.auth) {
@@ -1096,51 +1327,13 @@ exports.finalizeStripeCheckoutSession = onCall(
         willRenew = subscription.cancel_at_period_end === false;
       }
 
-      const planDetails = resolvePlanDetails(metadata.tier);
-
-      let expiresAtTimestamp = null;
-      if (expiresAt) {
-        const parsed = new Date(expiresAt);
-        if (!Number.isNaN(parsed.getTime())) {
-          expiresAtTimestamp = Timestamp.fromDate(parsed);
-        }
-      }
-
-      await db.collection('users').doc(request.auth.uid).set({
-        profile: {
-          subscriptionTier: planDetails.plan,
-          subscriptionStatus: 'active',
-          subscriptionProvider: 'stripe',
-          subscriptionWillRenew: willRenew,
-          subscriptionExpiresAt: expiresAtTimestamp,
-          subscriptionBillingTier: metadata.tier,
-          subscriptionUpdatedAt: FieldValue.serverTimestamp(),
-          effectiveLimits: planDetails.effectiveLimits,
-        }
-      }, { merge: true });
-
-      const planDocument = {
-        plan: planDetails.plan,
-        billingTier: metadata.tier,
+      const { planDetails } = await applyPlanToUser(request.auth.uid, metadata.tier, {
         provider: 'stripe',
         priceId: firstPrice,
-        effectiveLimits: planDetails.effectiveLimits,
-        flags: planDetails.flags,
         willRenew,
-        lifetime: planDetails.lifetime,
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      if (expiresAtTimestamp) {
-        planDocument.expiresAt = expiresAtTimestamp;
-      } else if (planDetails.lifetime) {
-        planDocument.expiresAt = null;
-      }
-
-      await db.collection('users').doc(request.auth.uid)
-        .collection('plan')
-        .doc('active')
-        .set(planDocument, { merge: true });
+        expiresAtIso: expiresAt,
+        status: 'active',
+      });
 
       await checkoutRef.set({
         status: 'completed',
@@ -1165,7 +1358,68 @@ exports.finalizeStripeCheckoutSession = onCall(
       }
       throw new HttpsError('internal', error.message || 'Failed to verify checkout session.');
     }
-  }
+  })
+);
+
+exports.handleStripeWebhook = onRequest(
+  {
+    region: 'us-central1',
+    cors: true,
+    secrets: ['STRIPE_WEBHOOK_SECRET'],
+  },
+  withMonitoring('handleStripeWebhook', async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method Not Allowed');
+      return;
+    }
+
+    try {
+      ensureStripeConfigured();
+    } catch (error) {
+      console.error('❌ Stripe webhook misconfiguration:', error.message);
+      res.status(500).send('Stripe is not configured.');
+      return;
+    }
+
+    const signingSecret = stripeConfig.webhook_secret || process.env.STRIPE_WEBHOOK_SECRET;
+    if (!signingSecret) {
+      console.error('❌ Stripe webhook secret is missing.');
+      res.status(500).send('Stripe webhook secret not configured.');
+      return;
+    }
+
+    let event;
+    try {
+      event = stripeClient.webhooks.constructEvent(
+        req.rawBody,
+        req.headers['stripe-signature'],
+        signingSecret,
+      );
+    } catch (err) {
+      console.error('⚠️ Invalid Stripe webhook signature:', err.message);
+      res.status(400).send(`Webhook Error: ${err.message}`);
+      return;
+    }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await handleStripeCheckoutCompleted(event.data.object);
+          break;
+        case 'customer.subscription.updated':
+        case 'customer.subscription.deleted':
+          await handleStripeSubscriptionEvent(event.data.object, event.type);
+          break;
+        default:
+          console.log(`ℹ️ Received unhandled Stripe event: ${event.type}`);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error('❌ Stripe webhook processing error:', error);
+      res.status(500).send('Webhook handler failure.');
+    }
+  })
 );
 
 exports.createListing = onCall(
@@ -1452,11 +1706,15 @@ exports.processPayment = onCall(
 // Crystal identification function - requires authentication
 exports.identifyCrystal = onCall(
   { cors: true, memory: '1GiB', timeoutSeconds: 60 },
-  async (request) => {
+  withMonitoring('identifyCrystal', async (request) => {
     // Check authentication
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Must be authenticated to identify crystals');
     }
+
+    ensureGeminiConfigured();
+
+    await assertUsageQuota(request.auth.uid, 'crystal_identification');
 
     // Use Google AI SDK with Firebase config
     const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -1578,7 +1836,7 @@ exports.identifyCrystal = onCall(
       console.error('❌ Crystal identification error:', error);
       throw new HttpsError('internal', `Identification failed: ${error.message}`);
     }
-  }
+  })
 );
 
 async function migrateLegacyIdentifications(uid) {
@@ -1663,11 +1921,15 @@ async function migrateLegacyIdentifications(uid) {
 // Crystal guidance function - text-only Gemini queries, requires authentication
 exports.getCrystalGuidance = onCall(
   { cors: true, memory: '256MiB', timeoutSeconds: 30 },
-  async (request) => {
+  withMonitoring('getCrystalGuidance', async (request) => {
     // Check authentication
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Must be authenticated to receive crystal guidance');
     }
+
+    ensureGeminiConfigured();
+
+    await assertUsageQuota(request.auth.uid, 'crystal_guidance');
 
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(config().gemini.api_key);
@@ -1744,7 +2006,7 @@ exports.getCrystalGuidance = onCall(
       console.error('❌ Crystal guidance error:', error);
       throw new HttpsError('internal', `Guidance failed: ${error.message}`);
     }
-  }
+  })
 );
 
 exports.getCrystalRecommendations = onCall(
@@ -1753,6 +2015,8 @@ exports.getCrystalRecommendations = onCall(
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to receive crystal recommendations.');
     }
+
+    await assertUsageQuota(request.auth.uid, 'crystal_recommendations');
 
     const needInput = request.data?.need;
     if (typeof needInput !== 'string' || needInput.trim().length === 0) {
@@ -1884,10 +2148,12 @@ exports.getCrystalRecommendations = onCall(
 
 exports.generateHealingLayout = onCall(
   { cors: true, timeoutSeconds: 30 },
-  async (request) => {
+  withMonitoring('generateHealingLayout', async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to request a healing layout.');
     }
+
+    await assertUsageQuota(request.auth.uid, 'healing_layout');
 
     const availableCrystals = Array.isArray(request.data?.availableCrystals)
       ? request.data.availableCrystals
@@ -1976,15 +2242,17 @@ exports.generateHealingLayout = onCall(
       },
       suggestedCrystals: Array.from(supplemental),
     };
-  }
+  })
 );
 
 exports.getMoonRituals = onCall(
   { cors: true, timeoutSeconds: 30 },
-  async (request) => {
+  withMonitoring('getMoonRituals', async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to receive moon ritual guidance.');
     }
+
+    await assertUsageQuota(request.auth.uid, 'moon_ritual');
 
     const requestedPhase = typeof request.data?.moonPhase === 'string' ? request.data.moonPhase : '';
     const userCrystals = Array.isArray(request.data?.userCrystals) ? request.data.userCrystals : [];
@@ -2085,7 +2353,7 @@ exports.getMoonRituals = onCall(
       },
       userCrystals,
     };
-  }
+  })
 );
 
 exports.checkCrystalCompatibility = onCall(
@@ -2263,12 +2531,19 @@ exports.checkCrystalCompatibility = onCall(
 
         if (sharedChakras.length > 0) {
           pairScore += sharedChakras.length * 10;
-          synergyInsights.push(`${first.entry.name} and ${second.entry.name} harmonise through the ${sharedChakras.join(', ')} chakra${sharedChakras.length > 1 ? 's' : ''}.`);
+          const chakraList = sharedChakras.join(', ');
+          const suffix = sharedChakras.length > 1 ? 's' : '';
+          synergyInsights.push(
+            `${first.entry.name} and ${second.entry.name} harmonise through the ${chakraList} chakra${suffix}.`,
+          );
         }
 
         if (sharedElements.length > 0) {
           pairScore += sharedElements.length * 8;
-          synergyInsights.push(`${first.entry.name} and ${second.entry.name} share ${sharedElements.join(' & ')} element energy.`);
+          const elementsList = sharedElements.join(' & ');
+          synergyInsights.push(
+            `${first.entry.name} and ${second.entry.name} share ${elementsList} element energy.`,
+          );
         }
 
         if (sharedChakras.length === 0 && sharedElements.length === 0) {
@@ -2449,13 +2724,16 @@ exports.searchCrystals = onCall(
 
 exports.earnSeerCredits = onCall(
   { cors: true, timeoutSeconds: 30 },
-  async (request) => {
+  withMonitoring('earnSeerCredits', async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to earn Seer Credits.');
     }
 
     const action = typeof request.data?.action === 'string' ? request.data.action.trim() : '';
     const creditsToEarn = Number(request.data?.creditsToEarn);
+    const clientTransactionId = typeof request.data?.clientTransactionId === 'string'
+      ? request.data.clientTransactionId.trim()
+      : null;
     if (!action || !ECONOMY_EARN_RULES[action]) {
       throw new HttpsError('invalid-argument', 'Unsupported earn action.');
     }
@@ -2465,15 +2743,26 @@ exports.earnSeerCredits = onCall(
     if (creditsToEarn !== ECONOMY_EARN_RULES[action]) {
       throw new HttpsError('invalid-argument', 'creditsToEarn does not match server rules.');
     }
+    if (clientTransactionId && clientTransactionId.length < 8) {
+      throw new HttpsError('invalid-argument', 'clientTransactionId must be at least 8 characters.');
+    }
 
     const uid = request.auth.uid;
     const economyRef = db.collection('users').doc(uid).collection('economy').doc('credits');
+    const transactionsRef = economyRef.collection('transactions');
 
     try {
       let updatedState = null;
       await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(economyRef);
         const data = snapshot.exists ? snapshot.data() || {} : {};
+
+        if (clientTransactionId) {
+          const existingTxn = await transaction.get(transactionsRef.doc(clientTransactionId));
+          if (existingTxn.exists) {
+            throw new HttpsError('already-exists', 'This earn action has already been processed.');
+          }
+        }
 
         let credits = data.credits || 0;
         let lifetime = data.lifetimeEarned || data.lifetimeCreditsEarned || 0;
@@ -2505,6 +2794,17 @@ exports.earnSeerCredits = onCall(
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
 
+        const transactionDoc = clientTransactionId
+          ? transactionsRef.doc(clientTransactionId)
+          : transactionsRef.doc();
+        transaction.set(transactionDoc, {
+          action,
+          delta: creditsToEarn,
+          type: 'earn',
+          clientTransactionId: clientTransactionId || transactionDoc.id,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
         updatedState = { credits, lifetime, dailyEarnCount };
       });
 
@@ -2521,18 +2821,21 @@ exports.earnSeerCredits = onCall(
       console.error('❌ earnSeerCredits error:', error);
       throw new HttpsError('internal', 'Failed to earn Seer Credits.');
     }
-  }
+  })
 );
 
 exports.spendSeerCredits = onCall(
   { cors: true, timeoutSeconds: 30 },
-  async (request) => {
+  withMonitoring('spendSeerCredits', async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to spend Seer Credits.');
     }
 
     const action = typeof request.data?.action === 'string' ? request.data.action.trim() : '';
     const creditsToSpend = Number(request.data?.creditsToSpend);
+    const clientTransactionId = typeof request.data?.clientTransactionId === 'string'
+      ? request.data.clientTransactionId.trim()
+      : null;
     if (!action || !ECONOMY_SPEND_RULES[action]) {
       throw new HttpsError('invalid-argument', 'Unsupported spend action.');
     }
@@ -2542,15 +2845,26 @@ exports.spendSeerCredits = onCall(
     if (creditsToSpend !== ECONOMY_SPEND_RULES[action]) {
       throw new HttpsError('invalid-argument', 'creditsToSpend does not match server rules.');
     }
+    if (clientTransactionId && clientTransactionId.length < 8) {
+      throw new HttpsError('invalid-argument', 'clientTransactionId must be at least 8 characters.');
+    }
 
     const uid = request.auth.uid;
     const economyRef = db.collection('users').doc(uid).collection('economy').doc('credits');
+    const transactionsRef = economyRef.collection('transactions');
 
     try {
       let updatedState = null;
       await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(economyRef);
         const data = snapshot.exists ? snapshot.data() || {} : {};
+
+        if (clientTransactionId) {
+          const existingTxn = await transaction.get(transactionsRef.doc(clientTransactionId));
+          if (existingTxn.exists) {
+            throw new HttpsError('already-exists', 'This spend action has already been processed.');
+          }
+        }
 
         const credits = data.credits || 0;
         if (credits < creditsToSpend) {
@@ -2561,6 +2875,17 @@ exports.spendSeerCredits = onCall(
           credits: credits - creditsToSpend,
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
+
+        const transactionDoc = clientTransactionId
+          ? transactionsRef.doc(clientTransactionId)
+          : transactionsRef.doc();
+        transaction.set(transactionDoc, {
+          action,
+          delta: -creditsToSpend,
+          type: 'spend',
+          clientTransactionId: clientTransactionId || transactionDoc.id,
+          createdAt: FieldValue.serverTimestamp(),
+        });
 
         updatedState = { credits: credits - creditsToSpend };
       });
@@ -2576,7 +2901,7 @@ exports.spendSeerCredits = onCall(
       console.error('❌ spendSeerCredits error:', error);
       throw new HttpsError('internal', 'Failed to spend Seer Credits.');
     }
-  }
+  })
 );
 
 exports.initializeUserProfile = onCall(
@@ -2939,7 +3264,7 @@ exports.trackUsage = onCall(
 // Dream analysis and journaling helper
 exports.analyzeDream = onCall(
   { cors: true, memory: '512MiB', timeoutSeconds: 40 },
-  async (request) => {
+  withMonitoring('analyzeDream', async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');
     }
@@ -2949,6 +3274,10 @@ exports.analyzeDream = onCall(
     if (!dreamContent || typeof dreamContent !== 'string' || dreamContent.trim().length < 10) {
       throw new HttpsError('invalid-argument', 'Dream content must be at least 10 characters long.');
     }
+
+    ensureGeminiConfigured();
+
+    await assertUsageQuota(request.auth.uid, 'dream_analysis');
 
     try {
       console.log(`🌌 Analyzing dream for user ${request.auth.uid}`);
@@ -3066,7 +3395,7 @@ exports.analyzeDream = onCall(
       console.error('❌ Dream analysis error:', error);
       throw new HttpsError('internal', `Dream analysis failed: ${error.message}`);
     }
-  }
+  })
 );
 
 // Get daily crystal recommendation - public function (no auth required for daily inspiration)

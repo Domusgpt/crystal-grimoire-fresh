@@ -47,10 +47,12 @@ _Additional roadmap detail now lives in `docs/RELEASE_PLAN.md`; use it alongside
 5. **Documentation & Observability**
    - Keep `docs/APP_ASSESSMENT.md` in sync.
    - Add logging/monitoring for Cloud Functions (currently console logs only) and consider Firebase Performance or Crashlytics for future mobile builds.
+   - Wire up the new `MonitoringService` analytics hooks and Cloud Function `withMonitoring` logs into dashboards/alerts before inviting real users.【F:lib/services/monitoring_service.dart†L1-L152】【F:functions/src/monitoring.js†L1-L63】
 
 ## 5. Troubleshooting Tips
 - **Firestore Permission Errors**: Inspect the console for `permission-denied`. Either verify the user email or relax rules in a sandbox project while iterating.
 - **Function Failures**: Use `firebase functions:log` or run the emulator suite (`firebase emulators:start --only functions,firestore`) with test API keys to debug.
+- **Incident Response**: `npm run export:firestore -- --project <id>` snapshots users/marketplace/plan collections into `backups/`; run before migrations or during outages.【F:scripts/export_firestore.js†L1-L147】
 - **SharedPreferences on Web**: Cached data (collection, settings) persists across sessions. Clear via devtools if you need a clean slate.
 - **Marketplace**: Listings land in a `pending_review` state via the callable Function with a 12-hour cooldown; admins (custom claim `role: admin`) can now approve or reject submissions from the in-app review tab. Provision claims, moderation policy, and Stripe keys before enabling real purchases.
 
