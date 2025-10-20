@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_service.dart';
 import '../services/app_state.dart';
@@ -29,6 +30,11 @@ class AuthWrapper extends StatelessWidget {
 
         if (appState.errorMessage != null) {
           return _ErrorScreen(error: appState.errorMessage!);
+        }
+
+        final hasFirebase = Firebase.apps.isNotEmpty;
+        if (!hasFirebase) {
+          return const LoginScreen();
         }
 
         // Use Firebase Auth stream to determine which screen to show

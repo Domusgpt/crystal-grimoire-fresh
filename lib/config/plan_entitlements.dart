@@ -22,6 +22,9 @@ class PlanEntitlements {
       effectiveLimits: {
         'identifyPerDay': 3,
         'guidancePerDay': 1,
+        'dreamAnalysesPerDay': 1,
+        'recommendationsPerDay': 2,
+        'moonRitualsPerDay': 1,
         'journalMax': 50,
         'collectionMax': 50,
       },
@@ -32,6 +35,9 @@ class PlanEntitlements {
       effectiveLimits: {
         'identifyPerDay': 15,
         'guidancePerDay': 5,
+        'dreamAnalysesPerDay': 5,
+        'recommendationsPerDay': 8,
+        'moonRitualsPerDay': 5,
         'journalMax': 200,
         'collectionMax': 250,
       },
@@ -42,6 +48,9 @@ class PlanEntitlements {
       effectiveLimits: {
         'identifyPerDay': 40,
         'guidancePerDay': 15,
+        'dreamAnalysesPerDay': 20,
+        'recommendationsPerDay': 25,
+        'moonRitualsPerDay': 20,
         'journalMax': 500,
         'collectionMax': 1000,
       },
@@ -52,6 +61,9 @@ class PlanEntitlements {
       effectiveLimits: {
         'identifyPerDay': 999,
         'guidancePerDay': 200,
+        'dreamAnalysesPerDay': 200,
+        'recommendationsPerDay': 300,
+        'moonRitualsPerDay': 200,
         'journalMax': 2000,
         'collectionMax': 2000,
       },

@@ -3,7 +3,7 @@
   "description": "🔮 Crystal Grimoire Cloud Functions - AI-powered crystal identification and mystical guidance",
   "version": "1.0.0",
   "engines": {
-    "node": "22"
+    "node": "20"
   },
   "main": "index.js",
   "dependencies": {
@@ -29,12 +29,15 @@
     "eslint-config-google": "^0.14.0",
     "eslint-plugin-import": "^2.25.4",
     "firebase-functions-test": "^3.1.0",
-    "globals": "^15.9.0"
+    "globals": "^15.9.0",
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.4.0"
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "test:rules": "node --test test/security.rules.test.js",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "npm run shell",

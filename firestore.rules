@@ -23,6 +23,15 @@ service cloud.firestore {
       return request.resource.data.keys().hasAll(fields) &&
              request.resource.data.keys().hasOnly(fields.concat(['createdAt', 'updatedAt']));
     }
+
+    function hasValidDataWithOptional(required, optional) {
+      return request.resource.data.keys().hasAll(required) &&
+             request.resource.data.keys().hasOnly(required.concat(optional).concat(['createdAt', 'updatedAt']));
+    }
+
+    function isValidListingStatus(status) {
+      return status in ['pending_review', 'active', 'inactive', 'sold', 'rejected', 'removed'];
+    }
     
     function isRecentTimestamp() {
       return request.resource.data.createdAt is timestamp &&
@@ -103,18 +112,19 @@ service cloud.firestore {
       
       // Dream journal with privacy protection
       match /dreams/{dreamId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) &&
                      hasValidData(['content', 'analysis', 'crystalSuggestions', 'dreamDate', 'crystalsUsed', 'mood', 'moonPhase']) &&
                      isValidStringLength(request.resource.data.content, 10, 5000) &&
                      request.resource.data.crystalSuggestions is list &&
                      request.resource.data.crystalsUsed is list;
+        allow update, delete: if isOwner(userId) || isAdmin();
       }
 
       // Moon ritual preferences synced across devices
       match /ritual_preferences/{preferenceId} {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId) &&
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin()) &&
           request.resource.data.keys().hasOnly([
             'phase', 'intention', 'moonMetadata', 'createdAt', 'updatedAt', 'submittedBy'
           ]) &&
@@ -148,9 +158,11 @@ service cloud.firestore {
     match /marketplace/{listingId} {
       allow read: if isAuth();
       allow create: if isAuth() &&
-                   hasValidData(['title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description', 'sellerName', 'category', 'imageUrl', 'isVerifiedSeller', 'rating']) &&
+                   hasValidDataWithOptional([
+                     'title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description', 'sellerName', 'category', 'imageUrl', 'isVerifiedSeller', 'rating'
+                   ], ['moderation', 'moderationHistory']) &&
                    request.resource.data.sellerId == request.auth.uid &&
-                   request.resource.data.status == 'active' &&
+                   request.resource.data.status == 'pending_review' &&
                    request.resource.data.priceCents is int &&
                    request.resource.data.priceCents > 0 &&
                    request.resource.data.priceCents <= 100000 && // Max $1000
@@ -162,12 +174,20 @@ service cloud.firestore {
                    (request.resource.data.isVerifiedSeller == null || request.resource.data.isVerifiedSeller is bool) &&
                    (request.resource.data.rating == null || (request.resource.data.rating is number && request.resource.data.rating >= 0 && request.resource.data.rating <= 5)) &&
                    isRecentTimestamp();
-      allow update: if isAuth() &&
-                   resource.data.sellerId == request.auth.uid &&
-                   request.resource.data.diff(resource.data).affectedKeys()
-                    .hasOnly(['title', 'description', 'priceCents', 'updatedAt']) &&
-                   request.resource.data.priceCents > 0 &&
-                   request.resource.data.priceCents <= 100000;
+      allow update: if isAuth() && (
+                   (
+                     resource.data.sellerId == request.auth.uid &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['title', 'description', 'priceCents', 'updatedAt', 'status']) &&
+                     request.resource.data.priceCents > 0 &&
+                     request.resource.data.priceCents <= 100000 &&
+                     isValidListingStatus(request.resource.data.status)
+                   ) || (
+                     isAdmin() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status', 'moderation', 'moderationHistory', 'rejectionReason', 'activatedAt', 'updatedAt']) &&
+                     isValidListingStatus(request.resource.data.status)
+                   ));
       allow delete: if isAuth() &&
                    (resource.data.sellerId == request.auth.uid || isAdmin());
     }
