@@ -15,6 +15,7 @@ class StorageService {
   static const String _adMetricsKey = 'ad_metrics';
   static const String _settingsSnapshotKey = 'user_settings_snapshot';
   static const String _planSnapshotKey = 'user_plan_snapshot';
+  static const String _planStatusKey = 'plan_status_snapshot';
   
   bool _isInitialized = false;
   
@@ -154,6 +155,36 @@ class StorageService {
   static Future<void> clearPlanSnapshot() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_planSnapshotKey);
+  }
+
+  // Plan status payload
+  static Future<void> savePlanStatus(Map<String, dynamic> status) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_planStatusKey, json.encode(status));
+  }
+
+  static Future<Map<String, dynamic>?> getPlanStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString(_planStatusKey);
+    if (jsonStr == null) {
+      return null;
+    }
+
+    try {
+      final decoded = json.decode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return Map<String, dynamic>.from(decoded as Map);
+    } catch (error) {
+      print('Failed to decode cached plan status: $error');
+      return null;
+    }
+  }
+
+  static Future<void> clearPlanStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_planStatusKey);
   }
   
   // Founders Account Management

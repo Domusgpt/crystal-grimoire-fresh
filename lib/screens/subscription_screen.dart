@@ -131,12 +131,41 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     try {
       PurchaseResult result;
-      if (package.identifier == EnhancedPaymentService.premiumMonthlyId) {
+      final planId = (package.planId.isNotEmpty
+              ? package.planId
+              : EnhancedPaymentService.resolvePlanIdForPrice(package.identifier))
+          .toLowerCase();
+
+      if (!package.hasStripePrice) {
+        setState(() {
+          _errorMessage =
+              'Stripe price configuration is missing for ${package.title}. Update plan_catalog to include stripePriceId.';
+        });
+        return;
+      }
+
+      if (planId.isEmpty) {
+        setState(() {
+          _errorMessage =
+              'Unable to determine the plan for ${package.title}. Please verify the plan_catalog entry.';
+        });
+        return;
+      }
+
+      if (planId == 'premium' &&
+          package.identifier == EnhancedPaymentService.premiumMonthlyId) {
         result = await EnhancedPaymentService.purchasePremium();
-      } else if (package.identifier == EnhancedPaymentService.proMonthlyId) {
+      } else if (planId == 'pro' &&
+          package.identifier == EnhancedPaymentService.proMonthlyId) {
         result = await EnhancedPaymentService.purchasePro();
-      } else {
+      } else if (planId == 'founders' &&
+          package.identifier == EnhancedPaymentService.foundersLifetimeId) {
         result = await EnhancedPaymentService.purchaseFounders();
+      } else {
+        result = await EnhancedPaymentService.purchaseByPlan(
+          priceId: package.identifier,
+          planId: planId,
+        );
       }
 
       if (!mounted) return;
@@ -323,15 +352,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   bool _isPackageActive(MockPackage package) {
-    final tier = _status?.tier;
+    final tier = _status?.tier?.toLowerCase();
     if (tier == null) return false;
 
-    switch (package.identifier) {
-      case EnhancedPaymentService.premiumMonthlyId:
+    String planId = package.planId.toLowerCase();
+    if (planId.isEmpty) {
+      planId = EnhancedPaymentService.resolvePlanIdForPrice(package.identifier).toLowerCase();
+    }
+
+    switch (planId) {
+      case 'premium':
         return tier == 'premium' || tier == 'pro' || tier == 'founders';
-      case EnhancedPaymentService.proMonthlyId:
+      case 'pro':
         return tier == 'pro' || tier == 'founders';
-      case EnhancedPaymentService.foundersLifetimeId:
+      case 'founders':
         return tier == 'founders';
       default:
         return false;
@@ -473,6 +507,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildPackageCard(MockPackage package) {
     final isActive = _isPackageActive(package);
+    final highlightColor =
+        package.recommended ? Colors.amberAccent : Colors.purple.withOpacity(0.4);
+    final canPurchase = package.hasStripePrice && !isActive && !_isPurchasing;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
@@ -480,21 +517,49 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         color: Colors.white.withOpacity(0.05),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isActive ? Colors.greenAccent : Colors.purple.withOpacity(0.4),
+          color: isActive ? Colors.greenAccent : highlightColor,
+          width: package.recommended ? 2 : 1,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                package.title,
-                style: GoogleFonts.cinzel(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      package.title,
+                      style: GoogleFonts.cinzel(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (package.recommended)
+                      Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Most popular',
+                          style: GoogleFonts.crimsonText(
+                            color: Colors.amber,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               Text(
@@ -516,19 +581,55 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               height: 1.4,
             ),
           ),
+          if (package.features.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: package.features
+                  .map(
+                    (feature) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.check_circle_outline,
+                            color: Colors.amber,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              feature,
+                              style: GoogleFonts.crimsonText(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: isActive || _isPurchasing ? null : () => _purchase(package),
+              onPressed: canPurchase ? () => _purchase(package) : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: isActive ? Colors.green : Colors.amber,
+                disabledBackgroundColor: Colors.grey.withOpacity(0.4),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: Text(
-                isActive ? 'Current Plan' : 'Choose Plan',
+                isActive
+                    ? 'Current Plan'
+                    : (!package.hasStripePrice ? 'Configure Stripe' : 'Choose Plan'),
                 style: GoogleFonts.cinzel(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -536,6 +637,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
             ),
           ),
+          if (!package.hasStripePrice)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Add a stripePriceId for ${package.title} in Firestore to enable checkout.',
+                style: GoogleFonts.crimsonText(
+                  color: Colors.orangeAccent,
+                  fontSize: 12,
+                ),
+              ),
+            ),
         ],
       ),
     );
