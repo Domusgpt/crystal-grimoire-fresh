@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crystal.dart';
 import 'usage_tracker.dart';
 import 'cache_service.dart';
+import 'firebase_guard.dart';
 
 /// Global app state management using Provider
 class AppState extends ChangeNotifier {
@@ -18,8 +19,9 @@ class AppState extends ChangeNotifier {
   final List<Crystal> _crystalCollection = [];
   final List<CrystalIdentification> _recentIdentifications = [];
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseFirestore? get _firestore => FirebaseGuard.firestore;
+  FirebaseAuth? get _auth => FirebaseGuard.auth;
+  bool get _hasFirebase => FirebaseGuard.isConfigured;
   SharedPreferences? _prefs;
   final Map<String, Crystal> _crystalLibraryCache = {};
   int _journalEntriesThisMonth = 0;
@@ -269,15 +271,17 @@ class AppState extends ChangeNotifier {
   // Private helper methods
   
   Future<void> _loadCrystalCollection() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
 
-    if (user == null) {
+    if (user == null || store == null) {
       await _loadCrystalCollectionFromCache();
       return;
     }
 
     try {
-      final snapshot = await _firestore
+      final snapshot = await store
           .collection('users')
           .doc(user.uid)
           .collection('collection')
@@ -334,9 +338,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadRecentIdentifications() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
 
-    if (user == null) {
+    if (user == null || store == null) {
       await _loadRecentIdentificationsFromCache();
       return;
     }
@@ -344,7 +350,7 @@ class AppState extends ChangeNotifier {
     try {
       QuerySnapshot<Map<String, dynamic>> snapshot;
       try {
-        snapshot = await _firestore
+        snapshot = await store
             .collection('users')
             .doc(user.uid)
             .collection('identifications')
@@ -354,7 +360,7 @@ class AppState extends ChangeNotifier {
       } on FirebaseException catch (e) {
         if (e.code == 'failed-precondition' ||
             (e.message?.toLowerCase().contains('createdat') ?? false)) {
-          snapshot = await _firestore
+          snapshot = await store
               .collection('users')
               .doc(user.uid)
               .collection('identifications')
@@ -425,11 +431,13 @@ class AppState extends ChangeNotifier {
   Future<void> _loadSettingsFromProfile() async {
     await _loadSettingsFromCache();
 
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
+    if (user == null || store == null) return;
 
     try {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final doc = await store.collection('users').doc(user.uid).get();
       final settings = Map<String, dynamic>.from(doc.data()?['settings'] ?? {});
       _notificationsEnabled = settings['notifications'] ?? _notificationsEnabled;
       _soundEnabled = settings['sound'] ?? settings['soundEnabled'] ?? _soundEnabled;
@@ -466,11 +474,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistSettingsToFirestore() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
+    if (user == null || store == null) return;
 
     try {
-      await _firestore.collection('users').doc(user.uid).set({
+      await store.collection('users').doc(user.uid).set({
         'settings': {
           'notifications': _notificationsEnabled,
           'sound': _soundEnabled,
@@ -483,13 +493,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadUsageTracking() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
+    if (user == null || store == null) return;
 
     try {
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month);
-      final snapshot = await _firestore
+      final snapshot = await store
           .collection('users')
           .doc(user.uid)
           .collection('journal')
@@ -520,11 +532,16 @@ class AppState extends ChangeNotifier {
       return _crystalLibraryCache[key]!;
     }
 
+    final store = _firestore;
+    if (store == null) {
+      return _offlineCrystalFallback(key);
+    }
+
     DocumentReference<Map<String, dynamic>> docRef;
     if (key.contains('/')) {
-      docRef = _firestore.doc(key);
+      docRef = store.doc(key);
     } else {
-      docRef = _firestore.collection('crystal_library').doc(
+      docRef = store.collection('crystal_library').doc(
         key.isNotEmpty ? key : _slugify('mystery'),
       );
     }
@@ -553,20 +570,27 @@ class AppState extends ChangeNotifier {
       print('Failed to load crystal library reference "$key": $e');
     }
 
-    final fallbackId = key.isNotEmpty ? key : _slugify('mystery');
-    final fallback = Crystal(
-      id: fallbackId,
-      name: 'Mystery Crystal',
-      scientificName: '',
-      description: 'Crystal details will sync once the library entry is available.',
-      careInstructions: '',
-    );
+    final fallback = _offlineCrystalFallback(key);
 
     if (key.isNotEmpty) {
       _crystalLibraryCache[key] = fallback;
     }
 
     return fallback;
+  }
+
+  Crystal _offlineCrystalFallback(String key) {
+    final fallbackId = key.isNotEmpty ? key : _slugify('mystery');
+    return Crystal(
+      id: fallbackId,
+      name: key.isNotEmpty
+          ? key.replaceAll('-', ' ').split('/').last.trim().toUpperCase()
+          : 'Mystery Crystal',
+      scientificName: '',
+      description:
+          'Crystal details will sync once the library entry is available or Firebase is configured.',
+      careInstructions: 'Keep exploring the offline demo until sync is enabled.',
+    );
   }
 
   String _slugify(String value) {
