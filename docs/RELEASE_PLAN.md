@@ -49,11 +49,13 @@ This plan distills what is required to graduate the current repository from "pre
 
 ## Production Checklist
 1. **Reliability & observability**
-   - Instrument client and Functions logging (Analytics, Crashlytics/Performance, custom logging) and set up monitoring/alerting for Stripe webhooks and Function failures.【F:functions/index.js†L200-L799】
-   - Add automated backups or export scripts for critical collections (`users`, `crystal_library`, `marketplace`).
+ - Instrument client and Functions logging (Analytics, Crashlytics/Performance, custom logging) and set up monitoring/alerting for Stripe webhooks and Function failures.【F:functions/index.js†L200-L799】
+  - Leverage `MonitoringService` analytics hooks and the Cloud Logging wrappers added in `functions/src/monitoring.js` to build latency/error dashboards; configure alerting thresholds for identifyCrystal, analyzeDream, and Stripe flows.【F:lib/services/monitoring_service.dart†L1-L152】【F:functions/src/monitoring.js†L1-L63】
+  - Add automated backups or export scripts for critical collections (`users`, `crystal_library`, `marketplace`).
+  - Schedule the new `scripts/export_firestore.js` backup job (daily) and store artifacts in long-term storage for disaster recovery.【F:scripts/export_firestore.js†L1-L147】
 
 2. **Operations & support**
-   - Build moderation and support workflows (e.g., flagging marketplace listings, handling refund/support requests).
+   - Build moderation and support workflows (e.g., flagging marketplace listings, handling refund/support requests). Support callables + CLI now cover intake/comments/assignment; extend with automation or dashboards as needed.【F:functions/index.js†L1900-L2148】【F:scripts/support_ticket_cli.js†L1-L196】
    - Ensure legal/support URLs surfaced via `EnvironmentConfig` are populated before launch.【F:lib/services/environment_config.dart†L61-L132】
 
 3. **CI/CD & documentation**

@@ -33,6 +33,11 @@ This guide describes the practical steps required to run the current pre-MVP bui
 4. **Seed data**
    - Populate the `crystal_library` collection (use `scripts/seed_database.js` with a service account JSON). The UI expects canonical crystal docs for collection hydration.【F:lib/services/collection_service_v2.dart†L142-L212】
    - Create any required indexes via `firestore.indexes.json`.
+5. **Back up critical collections**
+   ```bash
+   npm run export:firestore -- --project <your-project-id> --serviceAccount path/to/service-account.json
+   ```
+   The script writes timestamped JSON snapshots for users, marketplace listings, plans, feature flags, and the crystal library. Run it before risky deploys or incident drills.【F:scripts/export_firestore.js†L1-L147】
 
 ## 3. Running Locally (Flutter Web)
 ```bash
@@ -83,5 +88,6 @@ Before inviting external testers, finish the backlog described in `docs/APP_ASSE
 - Implement or remove RevenueCat/Stripe integrations so the build compiles cleanly.
 - Add automated smoke tests (`flutter test`, Cloud Function unit tests) and update CI scripts accordingly.
 - Instrument error logging/monitoring (Analytics, Crashlytics/Performance).
+- Enable the `MonitoringService` analytics hooks and review Cloud Logging dashboards for callable invocations (`withMonitoring` wrappers emit duration + error context).【F:lib/services/monitoring_service.dart†L1-L152】【F:functions/src/monitoring.js†L1-L63】
 
 Keep this guide updated as deployment steps change.

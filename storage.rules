@@ -18,19 +18,19 @@ service firebase.storage {
     
     // Users can upload to their own directory
     match /users/{userId}/{allPaths=**} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
       allow read: if isAuthenticated(); // Others can view profile images
     }
-    
+
     // Crystal identification images
     match /identifications/{userId}/{allPaths=**} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
     }
-    
+
     // Marketplace listing images
     match /marketplace/{userId}/{allPaths=**} {
       allow read: if isAuthenticated(); // Anyone can view marketplace images
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) || isAdmin();
     }
     
     // Master crystal database images - public read, admin write

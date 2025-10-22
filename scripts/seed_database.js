@@ -1,21 +1,119 @@
 // Crystal Grimoire Database Seeding Script
 // Seeds the Firestore database with essential data for launch
 
-const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 
-// Initialize Firebase Admin SDK
-if (!admin.apps.length) {
-  // Use service account key for initialization
-  const serviceAccount = require('../firebase-service-account-key.json');
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: 'https://crystal-grimoire-2025.firebaseio.com'
-  });
+let admin;
+try {
+  // Prefer a top-level installation so the script can run independently
+  admin = require('firebase-admin');
+} catch (error) {
+  const fallbackPath = path.join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin');
+  try {
+    admin = require(fallbackPath);
+  } catch (innerError) {
+    console.error('❌ firebase-admin is not installed. Run "npm install firebase-admin" or install dependencies in functions/.');
+    throw error;
+  }
 }
 
+const {
+  PLAN_DETAILS,
+  PLAN_ALIASES,
+  PLAN_CATALOG_METADATA,
+} = require('../functions/src/plan_catalog');
+
+const args = process.argv.slice(2);
+const options = args.reduce((acc, arg) => {
+  if (arg.startsWith('--project=')) {
+    acc.project = arg.split('=')[1];
+  } else if (arg.startsWith('--serviceAccount=')) {
+    acc.serviceAccount = arg.split('=')[1];
+  } else if (arg === '--dry-run') {
+    acc.dryRun = true;
+  }
+  return acc;
+}, { dryRun: false });
+
+function loadServiceAccount() {
+  if (options.serviceAccount) {
+    const resolvedPath = path.resolve(options.serviceAccount);
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Service account file not found: ${resolvedPath}`);
+    }
+    return JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+  }
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  }
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT && fs.existsSync(process.env.FIREBASE_SERVICE_ACCOUNT)) {
+    return JSON.parse(fs.readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT, 'utf8'));
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    return JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
+  }
+
+  return null;
+}
+
+function initializeFirebase() {
+  if (admin.apps.length) {
+    return;
+  }
+
+  const serviceAccount = loadServiceAccount();
+  const projectId = options.project
+    || process.env.FIREBASE_PROJECT_ID
+    || serviceAccount?.project_id
+    || process.env.GCLOUD_PROJECT
+    || 'crystal-grimoire-dev';
+
+  const initConfig = {
+    projectId,
+  };
+
+  if (serviceAccount) {
+    initConfig.credential = admin.credential.cert(serviceAccount);
+  } else {
+    initConfig.credential = admin.credential.applicationDefault();
+  }
+
+  initConfig.databaseURL = `https://${projectId}.firebaseio.com`;
+
+  admin.initializeApp(initConfig);
+  console.log(`🔮 Initialized Firebase Admin for project: ${projectId}`);
+}
+
+initializeFirebase();
+
 const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
+
+async function commitBatch(batch, description) {
+  if (options.dryRun) {
+    console.log(`🛑 Dry run: skipping commit for ${description}`);
+    return;
+  }
+  await batch.commit();
+  console.log(`✅ ${description}`);
+}
+
+async function setDocument(ref, data, description, merge = true) {
+  if (options.dryRun) {
+    console.log(`🛑 Dry run: skipping write for ${description}`);
+    return;
+  }
+  if (merge) {
+    await ref.set(data, { merge: true });
+  } else {
+    await ref.set(data);
+  }
+  console.log(`✅ ${description}`);
+}
 
 // SPEC-1 Compliant Crystal Library Data
 const crystalLibraryData = [
@@ -272,6 +370,55 @@ const analyticsData = {
   }
 };
 
+const ECONOMY_DAILY_LIMITS = {
+  share_card: 3,
+  meditation_complete: 1,
+  crystal_identify_new: 3,
+  journal_entry: 1,
+  ritual_complete: 1,
+};
+
+async function seedPlanCatalog() {
+  console.log('🏷️ Seeding plan catalog metadata...');
+
+  await setDocument(
+    db.collection('config').doc('plan_aliases'),
+    {
+      aliasMap: PLAN_ALIASES,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    'Updated plan alias map'
+  );
+
+  const planOrder = Object.keys(PLAN_DETAILS);
+  for (const planId of planOrder) {
+    const plan = PLAN_DETAILS[planId];
+    const metadata = PLAN_CATALOG_METADATA[planId] || {};
+    const features = Array.isArray(metadata.features) ? [...metadata.features] : [];
+
+    await setDocument(
+      db.collection('plan_catalog').doc(planId),
+      {
+        planId,
+        displayName: metadata.displayName || planId,
+        tagline: metadata.tagline || '',
+        displayPrice: metadata.displayPrice || (planId === 'free' ? 'Free' : 'Configure in Stripe'),
+        stripePriceId: metadata.stripePriceId || '',
+        recommended: metadata.recommended === true,
+        billingCycle: metadata.billingCycle || (plan.lifetime ? 'lifetime' : 'recurring'),
+        lifetime: plan.lifetime === true,
+        features,
+        effectiveLimits: plan.effectiveLimits,
+        flags: plan.flags,
+        sortOrder: typeof metadata.sortOrder === 'number' ? metadata.sortOrder : planOrder.indexOf(planId),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      `Seeded plan catalog entry ${planId}`
+    );
+  }
+}
+
 // Main seeding function
 async function seedDatabase() {
   console.log('🔮 Starting Crystal Grimoire database seeding...');
@@ -287,8 +434,7 @@ async function seedDatabase() {
       batch1.set(docRef, crystalData);
     }
     
-    await batch1.commit();
-    console.log(`✅ Seeded ${crystalLibraryData.length} crystals to library`);
+    await commitBatch(batch1, `Seeded ${crystalLibraryData.length} crystals to library`);
     
     // Seed feature flags
     console.log('🚩 Seeding feature flags...');
@@ -303,9 +449,10 @@ async function seedDatabase() {
       });
     }
     
-    await batch2.commit();
-    console.log(`✅ Seeded ${featureFlagsData.length} feature flags`);
-    
+    await commitBatch(batch2, `Seeded ${featureFlagsData.length} feature flags`);
+
+    await seedPlanCatalog();
+
     // Seed system notifications
     console.log('📢 Seeding system notifications...');
     const batch3 = db.batch();
@@ -316,29 +463,196 @@ async function seedDatabase() {
       batch3.set(docRef, notificationData);
     }
     
-    await batch3.commit();
-    console.log(`✅ Seeded ${systemNotificationsData.length} system notifications`);
+    await commitBatch(batch3, `Seeded ${systemNotificationsData.length} system notifications`);
     
     // Seed analytics template
     console.log('📊 Seeding analytics template...');
-    await db.collection('analytics').doc('template').set(analyticsData);
-    console.log('✅ Seeded analytics template');
-    
+    await setDocument(
+      db.collection('analytics').doc('template'),
+      analyticsData,
+      'Seeded analytics template',
+      false
+    );
+
     // Create indexes hint document
-    await db.collection('_indexes_info').doc('required_indexes').set({
-      message: 'Ensure composite indexes are created for optimal performance',
-      indexes: [
-        'users/{userId}/collection: [addedAt, desc]',
-        'users/{userId}/identifications: [createdAt, desc]', 
-        'users/{userId}/guidance: [createdAt, desc]',
-        'marketplace: [status, createdAt, desc]',
-        'crystal_library: [name, asc]',
-        'usage: [userId, date]',
-        'error_logs: [severity, timestamp, desc]'
-      ],
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    
+    await setDocument(
+      db.collection('_indexes_info').doc('required_indexes'),
+      {
+        message: 'Ensure composite indexes are created for optimal performance',
+        indexes: [
+          'users/{userId}/collection: [addedAt, desc]',
+          'users/{userId}/identifications: [createdAt, desc]',
+          'users/{userId}/guidance: [createdAt, desc]',
+          'marketplace: [status, createdAt, desc]',
+          'crystal_library: [name, asc]',
+          'usage: [userId, date]',
+          'error_logs: [severity, timestamp, desc]'
+        ],
+        createdAt: FieldValue.serverTimestamp()
+      },
+      'Documented required indexes'
+    );
+
+    // Seed demo user and dependent data
+    const demoUid = 'demo-user';
+    console.log('👤 Seeding demo user and starter content...');
+    await setDocument(
+      db.collection('users').doc(demoUid),
+      {
+        email: 'demo@crystalgrimoire.app',
+        profile: {
+          displayName: 'Demo Mystic',
+          subscriptionTier: 'free',
+          subscriptionStatus: 'active',
+          subscriptionProvider: 'manual',
+          subscriptionUpdatedAt: FieldValue.serverTimestamp(),
+          effectiveLimits: {
+            identifyPerDay: 3,
+            guidancePerDay: 1,
+            dreamAnalysesPerDay: 1,
+            recommendationsPerDay: 2,
+            moonRitualsPerDay: 1,
+            journalMax: 50,
+            collectionMax: 50,
+          },
+        },
+        settings: {
+          theme: 'lunar',
+          notifications: true,
+          locale: 'en',
+        },
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Created demo user profile'
+    );
+
+    await setDocument(
+      db.collection('users').doc(demoUid).collection('collection').doc('clear-quartz-demo'),
+      {
+        libraryRef: 'clear-quartz',
+        notes: 'First crystal in the demo collection.',
+        tags: ['clarity', 'amplify'],
+        addedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded demo collection entry'
+    );
+
+    await setDocument(
+      db.collection('users').doc(demoUid).collection('dreams').doc('demo-dream'),
+      {
+        content: 'I was walking through a moonlit forest holding a glowing amethyst.',
+        analysis: 'Themes of intuition and protection surround this dream. Lean into trust.',
+        crystalSuggestions: [
+          { name: 'Amethyst', reason: 'Supports intuitive clarity', usage: 'Keep beside the bed' },
+          { name: 'Moonstone', reason: 'Harmonises lunar energy', usage: 'Wear as a pendant overnight' },
+        ],
+        dreamDate: FieldValue.serverTimestamp(),
+        crystalsUsed: ['Amethyst'],
+        mood: 'Curious',
+        moonPhase: 'waxing_gibbous',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded demo dream journal entry'
+    );
+
+    await setDocument(
+      db.collection('users').doc(demoUid).collection('ritual_preferences').doc('lunar-reset'),
+      {
+        phase: 'full_moon',
+        intention: 'Release stagnation and recharge',
+        moonMetadata: {
+          hemisphere: 'northern',
+          favoriteCrystals: ['Clear Quartz', 'Moonstone'],
+        },
+        submittedBy: demoUid,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded demo ritual preference'
+    );
+
+    await setDocument(
+      db.collection('users').doc(demoUid).collection('economy').doc('credits'),
+      {
+        credits: 5,
+        lifetimeEarned: 12,
+        lifetimeCreditsEarned: 12,
+        dailyEarnCount: { daily_checkin: 1 },
+        dailyLimits: ECONOMY_DAILY_LIMITS,
+        lastResetDate: new Date().toISOString().split('T')[0],
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded demo Seer Credits wallet'
+    );
+
+    await setDocument(
+      db.collection('users').doc(demoUid).collection('plan').doc('active'),
+      {
+        plan: 'free',
+        billingTier: 'free',
+        provider: 'manual',
+        priceId: null,
+        effectiveLimits: {
+          identifyPerDay: 3,
+          guidancePerDay: 1,
+          dreamAnalysesPerDay: 1,
+          recommendationsPerDay: 2,
+          moonRitualsPerDay: 1,
+          journalMax: 50,
+          collectionMax: 50,
+        },
+        flags: ['free'],
+        willRenew: false,
+        lifetime: false,
+        status: 'active',
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded demo subscription record'
+    );
+
+    console.log('🛍️ Seeding marketplace listing prototype...');
+    await setDocument(
+      db.collection('marketplace').doc('clear-quartz-demo-listing'),
+      {
+        title: 'Clarity Beacon Clear Quartz',
+        crystalId: 'clear-quartz',
+        priceCents: 3800,
+        sellerId: demoUid,
+        status: 'pending_review',
+        description: 'Hand-selected clear quartz point programmed for clarity rituals.',
+        sellerName: 'Demo Mystic',
+        category: 'Clusters',
+        imageUrl: 'https://example.com/images/clear-quartz.jpg',
+        isVerifiedSeller: false,
+        rating: null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        moderation: {
+          status: 'pending',
+          submittedAt: FieldValue.serverTimestamp(),
+        },
+      },
+      'Seeded marketplace sample listing'
+    );
+
+    await setDocument(
+      db.collection('moonData').doc('current'),
+      {
+        phase: 'waxing_gibbous',
+        emoji: '🌔',
+        illumination: 78,
+        timestamp: new Date().toISOString(),
+        nextFullMoon: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        nextNewMoon: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000).toISOString(),
+        lastSeededAt: FieldValue.serverTimestamp(),
+      },
+      'Seeded current moon data snapshot'
+    );
+
     console.log('🎉 Database seeding completed successfully!');
     console.log('\n📋 Next steps:');
     console.log('1. Verify Firestore indexes are created in Firebase Console');
@@ -359,10 +673,12 @@ async function cleanDatabase() {
   
   const collections = [
     'crystal_library',
-    'feature_flags', 
+    'feature_flags',
     'system_notifications',
     'analytics',
-    '_indexes_info'
+    '_indexes_info',
+    'plan_catalog',
+    'config'
   ];
   
   for (const collectionName of collections) {
@@ -382,7 +698,7 @@ async function cleanDatabase() {
 
 // Run the seeding process
 if (require.main === module) {
-  const action = process.argv[2] || 'seed';
+  const action = args.find((value) => !value.startsWith('--')) || 'seed';
   
   if (action === 'seed') {
     seedDatabase()
