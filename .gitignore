@@ -30,7 +30,6 @@ database-debug.log
 
 # Web
 web/flutter_service_worker.js
-web/index.html
 web/main.dart.js
 web/main.dart.js.map
 
@@ -50,6 +49,7 @@ node_modules/
 
 # Logs
 *.log
+backups/
 
 # API Keys (never commit)
 google-services.json

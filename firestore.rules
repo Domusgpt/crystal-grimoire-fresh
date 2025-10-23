@@ -23,7 +23,30 @@ service cloud.firestore {
       return request.resource.data.keys().hasAll(fields) &&
              request.resource.data.keys().hasOnly(fields.concat(['createdAt', 'updatedAt']));
     }
-    
+
+    function hasValidDataWithOptional(required, optional) {
+      return request.resource.data.keys().hasAll(required) &&
+             request.resource.data.keys().hasOnly(required.concat(optional).concat(['createdAt', 'updatedAt']));
+    }
+
+    function isValidListingStatus(status) {
+      return status in ['pending_review', 'active', 'inactive', 'sold', 'rejected', 'removed'];
+    }
+
+    function isSupportStatus(status) {
+      return status in ['open', 'pending_support', 'pending_user', 'resolved', 'closed'];
+    }
+
+    function isSupportPriority(priority) {
+      return priority in ['low', 'medium', 'high'];
+    }
+
+    function isValidTagList(tags) {
+      return tags is list &&
+             tags.size() <= 12 &&
+             tags.size() == tags.where(tag => tag is string && isValidStringLength(tag, 2, 40)).size();
+    }
+
     function isRecentTimestamp() {
       return request.resource.data.createdAt is timestamp &&
              request.resource.data.createdAt > request.time - duration.value(1, 'm') &&
@@ -103,18 +126,19 @@ service cloud.firestore {
       
       // Dream journal with privacy protection
       match /dreams/{dreamId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) &&
                      hasValidData(['content', 'analysis', 'crystalSuggestions', 'dreamDate', 'crystalsUsed', 'mood', 'moonPhase']) &&
                      isValidStringLength(request.resource.data.content, 10, 5000) &&
                      request.resource.data.crystalSuggestions is list &&
                      request.resource.data.crystalsUsed is list;
+        allow update, delete: if isOwner(userId) || isAdmin();
       }
 
       // Moon ritual preferences synced across devices
       match /ritual_preferences/{preferenceId} {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId) &&
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin()) &&
           request.resource.data.keys().hasOnly([
             'phase', 'intention', 'moonMetadata', 'createdAt', 'updatedAt', 'submittedBy'
           ]) &&
@@ -148,9 +172,11 @@ service cloud.firestore {
     match /marketplace/{listingId} {
       allow read: if isAuth();
       allow create: if isAuth() &&
-                   hasValidData(['title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description', 'sellerName', 'category', 'imageUrl', 'isVerifiedSeller', 'rating']) &&
+                   hasValidDataWithOptional([
+                     'title', 'crystalId', 'priceCents', 'sellerId', 'status', 'description', 'sellerName', 'category', 'imageUrl', 'isVerifiedSeller', 'rating'
+                   ], ['moderation', 'moderationHistory']) &&
                    request.resource.data.sellerId == request.auth.uid &&
-                   request.resource.data.status == 'active' &&
+                   request.resource.data.status == 'pending_review' &&
                    request.resource.data.priceCents is int &&
                    request.resource.data.priceCents > 0 &&
                    request.resource.data.priceCents <= 100000 && // Max $1000
@@ -162,12 +188,20 @@ service cloud.firestore {
                    (request.resource.data.isVerifiedSeller == null || request.resource.data.isVerifiedSeller is bool) &&
                    (request.resource.data.rating == null || (request.resource.data.rating is number && request.resource.data.rating >= 0 && request.resource.data.rating <= 5)) &&
                    isRecentTimestamp();
-      allow update: if isAuth() &&
-                   resource.data.sellerId == request.auth.uid &&
-                   request.resource.data.diff(resource.data).affectedKeys()
-                    .hasOnly(['title', 'description', 'priceCents', 'updatedAt']) &&
-                   request.resource.data.priceCents > 0 &&
-                   request.resource.data.priceCents <= 100000;
+      allow update: if isAuth() && (
+                   (
+                     resource.data.sellerId == request.auth.uid &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['title', 'description', 'priceCents', 'updatedAt', 'status']) &&
+                     request.resource.data.priceCents > 0 &&
+                     request.resource.data.priceCents <= 100000 &&
+                     isValidListingStatus(request.resource.data.status)
+                   ) || (
+                     isAdmin() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status', 'moderation', 'moderationHistory', 'rejectionReason', 'activatedAt', 'updatedAt']) &&
+                     isValidListingStatus(request.resource.data.status)
+                   ));
       allow delete: if isAuth() &&
                    (resource.data.sellerId == request.auth.uid || isAdmin());
     }
@@ -183,21 +217,69 @@ service cloud.firestore {
       allow read: if isAuth();
       allow write: if isAdmin();
     }
+
+    // Plan catalog metadata and alias mappings
+    match /plan_catalog/{planId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     
     // Support tickets with validation
     match /support_tickets/{ticketId} {
       allow read: if isAuth() &&
                  (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuth() &&
-                   hasValidData(['subject', 'description', 'userId', 'status', 'priority']) &&
+                   hasValidDataWithOptional(
+                     ['subject', 'description', 'userId', 'status', 'priority'],
+                     ['channel', 'tags', 'assigneeId', 'internalNotes', 'lastActivityAt', 'submittedBy']
+                   ) &&
                    request.resource.data.userId == request.auth.uid &&
                    request.resource.data.status == 'open' &&
-                   request.resource.data.priority in ['low', 'medium', 'high'] &&
+                   isSupportPriority(request.resource.data.priority) &&
+                   (!request.resource.data.keys().hasAny(['channel']) || request.resource.data.channel is string) &&
+                   (!request.resource.data.keys().hasAny(['tags']) || isValidTagList(request.resource.data.tags)) &&
+                   (!request.resource.data.keys().hasAny(['assigneeId']) || request.resource.data.assigneeId == null || isValidStringLength(request.resource.data.assigneeId, 1, 64)) &&
+                   (!request.resource.data.keys().hasAny(['internalNotes']) || request.resource.data.internalNotes == null || isValidStringLength(request.resource.data.internalNotes, 0, 2000)) &&
+                   (!request.resource.data.keys().hasAny(['lastActivityAt']) || request.resource.data.lastActivityAt is timestamp) &&
                    isValidStringLength(request.resource.data.subject, 5, 100) &&
                    isValidStringLength(request.resource.data.description, 10, 5000) &&
                    isRecentTimestamp();
-      allow update: if isAuth() &&
-                   (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuth() && (
+                   (
+                     resource.data.userId == request.auth.uid &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                     isSupportStatus(request.resource.data.status) &&
+                     request.resource.data.status in ['open', 'pending_support', 'closed'] &&
+                     isRecentTimestampValue(request.resource.data.updatedAt)
+                   ) || (
+                     isAdmin() &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                       'status', 'priority', 'assigneeId', 'tags', 'internalNotes', 'updatedAt', 'lastActivityAt'
+                     ]) &&
+                     isSupportStatus(request.resource.data.status) &&
+                     (!request.resource.data.keys().hasAny(['priority']) || isSupportPriority(request.resource.data.priority)) &&
+                     (!request.resource.data.keys().hasAny(['assigneeId']) || request.resource.data.assigneeId == null || isValidStringLength(request.resource.data.assigneeId, 1, 64)) &&
+                     (!request.resource.data.keys().hasAny(['tags']) || isValidTagList(request.resource.data.tags)) &&
+                     (!request.resource.data.keys().hasAny(['internalNotes']) || request.resource.data.internalNotes == null || isValidStringLength(request.resource.data.internalNotes, 0, 2000)) &&
+                     isRecentTimestampValue(request.resource.data.updatedAt) &&
+                     isRecentTimestampValue(request.resource.data.lastActivityAt)
+                   ));
+
+      match /comments/{commentId} {
+        allow read: if isAuth() && (
+          isAdmin() ||
+          (resource.data.visibility != 'internal' && (
+            resource.data.authorId == request.auth.uid ||
+            get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid
+          ))
+        );
+        allow write: if false;
+      }
     }
     
     // Invite codes (admin managed)
