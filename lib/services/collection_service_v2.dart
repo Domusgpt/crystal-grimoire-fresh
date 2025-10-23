@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../models/crystal_collection.dart';
 import '../models/crystal.dart';
+import 'firebase_guard.dart';
 
 /// Production-ready Collection Service with proper instance management
 /// This is NOT a static service - it uses proper dependency injection
@@ -20,8 +22,9 @@ class CollectionServiceV2 extends ChangeNotifier {
   String? _lastError;
   String? _userId;
   StreamSubscription<User?>? _authSubscription;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseFirestore? get _firestore => FirebaseGuard.firestore;
+  FirebaseAuth? get _auth => FirebaseGuard.auth;
+  bool get _hasFirebaseApp => FirebaseGuard.isConfigured;
   final Map<String, Crystal> _libraryCache = {};
   
   /// Get the current collection
@@ -45,6 +48,14 @@ class CollectionServiceV2 extends ChangeNotifier {
 
     try {
       await _loadFromLocal();
+      if (!_hasFirebaseApp) {
+        _lastError =
+            'Firebase not configured. Collection sync is running in offline mode.';
+        _isLoaded = true;
+        notifyListeners();
+        return;
+      }
+
       _authSubscription = _auth.authStateChanges().listen(_handleAuthChange);
       await _handleAuthChange(_auth.currentUser);
       _isLoaded = true;
@@ -82,6 +93,10 @@ class CollectionServiceV2 extends ChangeNotifier {
   }
 
   Future<void> _handleAuthChange(User? user) async {
+    if (!_hasFirebaseApp) {
+      return;
+    }
+
     _userId = user?.uid;
 
     if (user == null) {
@@ -95,18 +110,38 @@ class CollectionServiceV2 extends ChangeNotifier {
     await _loadFromBackend(user.uid);
   }
 
-  CollectionReference<Map<String, dynamic>> _collectionRef(String uid) =>
-      _firestore.collection('users').doc(uid).collection('collection');
+  CollectionReference<Map<String, dynamic>>? _collectionRef(String uid) {
+    final store = _firestore;
+    if (store == null) return null;
+    return store.collection('users').doc(uid).collection('collection');
+  }
 
-  CollectionReference<Map<String, dynamic>> _usageLogsRef(String uid) =>
-      _firestore.collection('users').doc(uid).collection('collectionLogs');
+  CollectionReference<Map<String, dynamic>>? _usageLogsRef(String uid) {
+    final store = _firestore;
+    if (store == null) return null;
+    return store.collection('users').doc(uid).collection('collectionLogs');
+  }
 
   Future<void> _loadFromBackend(String uid) async {
+    if (!_hasFirebaseApp) {
+      _lastError = 'Firebase not configured. Unable to sync collection.';
+      notifyListeners();
+      return;
+    }
+
+    final collectionRef = _collectionRef(uid);
+    final logsRef = _usageLogsRef(uid);
+    if (collectionRef == null || logsRef == null) {
+      _lastError = 'Firebase not configured. Unable to sync collection.';
+      notifyListeners();
+      return;
+    }
+
     try {
-      final collectionSnapshot = await _collectionRef(uid)
+      final collectionSnapshot = await collectionRef
           .orderBy('addedAt', descending: true)
           .get();
-      final logsSnapshot = await _usageLogsRef(uid)
+      final logsSnapshot = await logsRef
           .orderBy('dateTime', descending: true)
           .limit(200)
           .get();
@@ -556,11 +591,16 @@ class CollectionServiceV2 extends ChangeNotifier {
       return _libraryCache[key]!;
     }
 
+    final store = _firestore;
+    if (store == null) {
+      return _offlineCrystalFallback(key);
+    }
+
     DocumentReference<Map<String, dynamic>> docRef;
     if (key.contains('/')) {
-      docRef = _firestore.doc(key);
+      docRef = store.doc(key);
     } else {
-      docRef = _firestore.collection('crystal_library').doc(
+      docRef = store.collection('crystal_library').doc(
         key.isNotEmpty ? key : _slugify('mystery'),
       );
     }
@@ -589,20 +629,26 @@ class CollectionServiceV2 extends ChangeNotifier {
       debugPrint('Failed to load crystal library reference "$key": $e');
     }
 
-    final fallbackId = key.isNotEmpty ? key : _slugify('mystery');
-    final fallback = Crystal(
-      id: fallbackId,
-      name: 'Mystery Crystal',
-      scientificName: '',
-      description: 'Crystal details will sync once the library entry is available.',
-      careInstructions: '',
-    );
-
+    final fallback = _offlineCrystalFallback(key);
     if (key.isNotEmpty) {
       _libraryCache[key] = fallback;
     }
 
     return fallback;
+  }
+
+  Crystal _offlineCrystalFallback(String key) {
+    final fallbackId = key.isNotEmpty ? key : _slugify('mystery');
+    return Crystal(
+      id: fallbackId,
+      name: key.isNotEmpty
+          ? key.replaceAll('-', ' ').split('/').last.trim().toUpperCase()
+          : 'Mystery Crystal',
+      scientificName: '',
+      description:
+          'Crystal details will sync once Firebase is configured for the collection service.',
+      careInstructions: 'Keep exploring offline while setup completes.',
+    );
   }
 
   String _slugify(String value) {
