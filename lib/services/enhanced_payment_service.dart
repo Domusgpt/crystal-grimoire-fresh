@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../config/plan_entitlements.dart';
 import 'environment_config.dart';
 import 'storage_service.dart';
+import 'firebase_guard.dart';
+import 'plan_status_service.dart';
 
 /// Handles subscription management for Crystal Grimoire.
 ///
@@ -19,9 +22,17 @@ import 'storage_service.dart';
 /// payment completes. Local state is hydrated from Firestore and cached via
 /// `StorageService` for offline access.
 class EnhancedPaymentService {
-  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static FirebaseFunctions? get _functions => FirebaseGuard.functions();
+  static FirebaseFirestore? get _firestore => FirebaseGuard.firestore;
+  static FirebaseAuth? get _auth => FirebaseGuard.auth;
+  static bool get _hasFirebaseApp => FirebaseGuard.isConfigured;
+  static bool get _stripeBackendEnabled =>
+      _config.enableStripeCheckout &&
+      _config.stripePublishableKey.isNotEmpty &&
+      _hasFirebaseApp &&
+      _functions != null &&
+      _firestore != null &&
+      _auth != null;
 
   static EnvironmentConfig get _config => EnvironmentConfig.instance;
 
@@ -43,6 +54,11 @@ class EnhancedPaymentService {
 
   static Future<void> initialize() async {
     if (_isInitialized) return;
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      _isInitialized = true;
+      return;
+    }
     await _hydrateCachedStatus(forceRefresh: true);
     _isInitialized = true;
   }
@@ -54,48 +70,59 @@ class EnhancedPaymentService {
       await initialize();
     }
 
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return _cachedStatus!;
+    }
+
     await _hydrateCachedStatus(forceRefresh: forceRefresh);
     return _cachedStatus ?? SubscriptionStatus.free();
   }
 
   static Future<List<MockPackage>> getOfferings() async {
-    // In lieu of RevenueCat offerings we surface mocked metadata so the UI can
-    // render a pricing table while relying on Stripe Checkout for fulfillment.
-    return [
-      MockPackage(
-        identifier: premiumMonthlyId,
-        title: 'Crystal Premium',
-        description: '5 IDs/day · Collection sync · Ad-free rituals',
-        price: '\$8.99',
-        isLifetime: false,
-      ),
-      MockPackage(
-        identifier: proMonthlyId,
-        title: 'Crystal Pro',
-        description: '20 IDs/day · AI guidance · Pro rituals',
-        price: '\$19.99',
-        isLifetime: false,
-      ),
-      MockPackage(
-        identifier: foundersLifetimeId,
-        title: 'Founders Lifetime',
-        description: 'Unlimited access · Beta features · Founders badge',
-        price: '\$499.00',
-        isLifetime: true,
-      ),
-    ];
+    final defaults = _defaultOfferings();
+    final store = _firestore;
+
+    if (store == null || !_hasFirebaseApp) {
+      return defaults;
+    }
+
+    try {
+      final snapshot = await store
+          .collection('plan_catalog')
+          .orderBy('sortOrder')
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        return defaults;
+      }
+
+      return snapshot.docs
+          .map(_mapPlanCatalogDoc)
+          .toList(growable: false);
+    } catch (error) {
+      debugPrint('Plan catalog fetch failed, falling back to defaults: $error');
+      return defaults;
+    }
   }
 
   static Future<PurchaseResult> purchasePremium() async {
-    return _startCheckout(premiumMonthlyId, 'premium');
+    return purchaseByPlan(priceId: premiumMonthlyId, planId: 'premium');
   }
 
   static Future<PurchaseResult> purchasePro() async {
-    return _startCheckout(proMonthlyId, 'pro');
+    return purchaseByPlan(priceId: proMonthlyId, planId: 'pro');
   }
 
   static Future<PurchaseResult> purchaseFounders() async {
-    return _startCheckout(foundersLifetimeId, 'founders');
+    return purchaseByPlan(priceId: foundersLifetimeId, planId: 'founders');
+  }
+
+  static Future<PurchaseResult> purchaseByPlan({
+    required String priceId,
+    required String planId,
+  }) async {
+    return _startCheckout(priceId, planId);
   }
 
   static Future<SubscriptionStatus> confirmWebCheckout(String sessionId) async {
@@ -103,14 +130,28 @@ class EnhancedPaymentService {
       throw Exception('Missing checkout session identifier.');
     }
 
-    final user = _auth.currentUser;
+    final auth = _auth;
+    if (auth == null) {
+      throw Exception('Firebase authentication is not configured.');
+    }
+
+    final user = auth.currentUser;
     if (user == null) {
       throw Exception('You must be signed in to verify subscriptions.');
     }
 
+    if (!_stripeBackendEnabled) {
+      throw Exception(
+        'Stripe checkout is disabled. Provide ENABLE_STRIPE_CHECKOUT=true and configure Firebase Functions.',
+      );
+    }
+
     try {
       final callable =
-          _functions.httpsCallable('finalizeStripeCheckoutSession');
+          _functions?.httpsCallable('finalizeStripeCheckoutSession');
+      if (callable == null) {
+        throw Exception('Stripe Functions are not configured.');
+      }
       final response = await callable.call({'sessionId': sessionId});
       final data = Map<String, dynamic>.from(response.data as Map);
 
@@ -148,7 +189,8 @@ class EnhancedPaymentService {
   }
 
   static Future<void> enableFoundersAccountForTesting() async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final user = auth?.currentUser;
     if (user == null) return;
 
     await _applyPlanStatus(
@@ -171,11 +213,20 @@ class EnhancedPaymentService {
     String priceId,
     String tier,
   ) async {
-    final user = _auth.currentUser;
+    final auth = _auth;
+    final user = auth?.currentUser;
     if (user == null) {
       return const PurchaseResult(
         success: false,
         error: 'You must be signed in to start a subscription.',
+      );
+    }
+
+    if (!_stripeBackendEnabled) {
+      return const PurchaseResult(
+        success: false,
+        error:
+            'Stripe checkout is disabled. Enable ENABLE_STRIPE_CHECKOUT and Firebase Functions before purchasing.',
       );
     }
 
@@ -197,7 +248,13 @@ class EnhancedPaymentService {
 
     try {
       final urls = _buildWebCheckoutUrls();
-      final callable = _functions.httpsCallable('createStripeCheckoutSession');
+      final callable = _functions?.httpsCallable('createStripeCheckoutSession');
+      if (callable == null) {
+        return const PurchaseResult(
+          success: false,
+          error: 'Stripe Functions are not configured.',
+        );
+      }
       final response = await callable.call({
         'priceId': priceId,
         'tier': tier,
@@ -230,6 +287,95 @@ class EnhancedPaymentService {
     }
   }
 
+  static List<MockPackage> _defaultOfferings() {
+    return [
+      MockPackage(
+        identifier: premiumMonthlyId,
+        planId: 'premium',
+        title: 'Crystal Premium',
+        description: '15 IDs/day · Collection sync · Ad-free rituals',
+        price: '\$8.99',
+        isLifetime: false,
+        features: const [
+          '15 crystal identifications daily',
+          'Priority AI guidance queue',
+          'Moon ritual sync across devices',
+        ],
+        recommended: true,
+      ),
+      MockPackage(
+        identifier: proMonthlyId,
+        planId: 'pro',
+        title: 'Crystal Pro',
+        description: '40 IDs/day · Deep dream analysis · Advanced rituals',
+        price: '\$19.99',
+        isLifetime: false,
+        features: const [
+          '40 identifications per day',
+          'Advanced healing layout generator',
+          'Crystal compatibility matrix exports',
+        ],
+      ),
+      MockPackage(
+        identifier: foundersLifetimeId,
+        planId: 'founders',
+        title: 'Founders Lifetime',
+        description: 'Lifetime access · Founders badge · Beta previews',
+        price: '\$499.00',
+        isLifetime: true,
+        features: const [
+          'Unlimited identifications and rituals',
+          'Founders Discord role and concierge support',
+          'Priority access to experimental ceremonies',
+        ],
+      ),
+    ];
+  }
+
+  static MockPackage _mapPlanCatalogDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final features = List<String>.from(data['features'] as List? ?? const []);
+    final displayName = (data['displayName'] as String?)?.trim();
+    final tagline = (data['tagline'] as String?)?.trim();
+    final displayPrice = (data['displayPrice'] as String?)?.trim();
+    final stripePriceId = (data['stripePriceId'] as String?)?.trim() ?? '';
+    final billingCycle = (data['billingCycle'] as String?)?.trim().toLowerCase();
+
+    return MockPackage(
+      identifier: stripePriceId,
+      planId: doc.id,
+      title: displayName != null && displayName.isNotEmpty ? displayName : doc.id,
+      description: tagline != null && tagline.isNotEmpty
+          ? tagline
+          : 'Configure plan messaging in Firestore plan_catalog.',
+      price: displayPrice != null && displayPrice.isNotEmpty
+          ? displayPrice
+          : 'Configure Stripe price',
+      isLifetime: data['lifetime'] == true || billingCycle == 'lifetime',
+      features: features,
+      recommended: data['recommended'] == true,
+    );
+  }
+
+  static String resolvePlanIdForPrice(String priceId) {
+    return _inferPlanIdFromIdentifier(priceId);
+  }
+
+  static String _inferPlanIdFromIdentifier(String identifier) {
+    if (identifier == premiumMonthlyId) {
+      return 'premium';
+    }
+    if (identifier == proMonthlyId) {
+      return 'pro';
+    }
+    if (identifier == foundersLifetimeId) {
+      return 'founders';
+    }
+    return '';
+  }
+
   static Map<String, String> _buildWebCheckoutUrls() {
     final baseUri = Uri.base;
     final origin = baseUri.hasAuthority ? baseUri.origin : _config.websiteUrl;
@@ -244,24 +390,32 @@ class EnhancedPaymentService {
       return;
     }
 
-    final user = _auth.currentUser;
-    if (user == null) {
+    if (!_stripeBackendEnabled) {
+      _cachedStatus = SubscriptionStatus.free();
+      return;
+    }
+
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
+    if (user == null || store == null) {
       _cachedStatus = SubscriptionStatus.free();
       return;
     }
 
     try {
-      final snapshot = await _firestore.collection('users').doc(user.uid).get();
-      if (!snapshot.exists) {
-        _cachedStatus = SubscriptionStatus.free();
-        return;
-      }
+      final planStatus = await PlanStatusService.getPlanStatus(forceRefresh: true);
 
+      final snapshot = await store.collection('users').doc(user.uid).get();
       final data = snapshot.data();
       final profile = data != null && data['profile'] is Map
           ? Map<String, dynamic>.from(data['profile'] as Map)
           : <String, dynamic>{};
-      final status = SubscriptionStatus.fromProfile(profile);
+
+      final status = SubscriptionStatus.fromProfile(profile).copyWith(
+        tier: planStatus.tier,
+      );
+
       _cachedStatus = status;
       await StorageService.saveSubscriptionTier(status.tier);
     } catch (error) {
@@ -277,8 +431,14 @@ class EnhancedPaymentService {
     required bool willRenew,
     String? expiresAtIso,
   }) async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    if (!_stripeBackendEnabled) {
+      return;
+    }
+
+    final auth = _auth;
+    final store = _firestore;
+    final user = auth?.currentUser;
+    if (user == null || store == null) return;
 
     final entitlements = PlanEntitlements.effectiveLimits(tier);
     final flags = PlanEntitlements.flags(tier);
@@ -301,7 +461,7 @@ class EnhancedPaymentService {
       profileUpdate['subscriptionExpiresAt'] = null;
     }
 
-    await _firestore.collection('users').doc(user.uid).set({
+    await store.collection('users').doc(user.uid).set({
       'profile': profileUpdate,
     }, SetOptions(merge: true));
 
@@ -322,12 +482,19 @@ class EnhancedPaymentService {
       planPayload['expiresAt'] = null;
     }
 
-    await _firestore
+    await store
         .collection('users')
         .doc(user.uid)
         .collection('plan')
         .doc('active')
         .set(planPayload, SetOptions(merge: true));
+
+    try {
+      await PlanStatusService.clearCachedStatus();
+      await PlanStatusService.refreshPlanStatus();
+    } catch (error) {
+      debugPrint('Plan status refresh failed after update: $error');
+    }
   }
 
   static String? _coerceExpiresAt(dynamic value) {
@@ -389,6 +556,20 @@ class SubscriptionStatus {
     );
   }
 
+  SubscriptionStatus copyWith({
+    String? tier,
+    bool? isActive,
+    String? expiresAt,
+    bool? willRenew,
+  }) {
+    return SubscriptionStatus(
+      tier: tier ?? this.tier,
+      isActive: isActive ?? this.isActive,
+      expiresAt: expiresAt ?? this.expiresAt,
+      willRenew: willRenew ?? this.willRenew,
+    );
+  }
+
   @override
   String toString() {
     return 'SubscriptionStatus(tier: $tier, active: $isActive, expires: $expiresAt)';
@@ -413,16 +594,24 @@ class PurchaseResult {
 
 class MockPackage {
   final String identifier;
+  final String planId;
   final String title;
   final String description;
   final String price;
   final bool isLifetime;
+  final List<String> features;
+  final bool recommended;
 
   const MockPackage({
     required this.identifier,
+    required this.planId,
     required this.title,
     required this.description,
     required this.price,
     required this.isLifetime,
+    this.features = const [],
+    this.recommended = false,
   });
+
+  bool get hasStripePrice => identifier.isNotEmpty;
 }
