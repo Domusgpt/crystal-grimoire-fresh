@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
+import 'plan_status_service.dart';
 
 /// Service for tracking API usage and enforcing subscription limits
 class UsageTracker {
@@ -96,35 +97,48 @@ class UsageTracker {
     try {
       final prefs = await SharedPreferences.getInstance();
       await _checkAndResetMonthlyCounter();
-      
-      final tier = await getCurrentSubscriptionTier();
-      final monthlyCount = prefs.getInt(_monthlyCountKey) ?? 0;
-      final totalCount = prefs.getInt(_totalUsageKey) ?? 0;
+
+      final planStatus = await PlanStatusService.getPlanStatus();
+      final tier = planStatus.tier;
+
+      await prefs.setString(_subscriptionTierKey, tier);
+
       final previewsUsed = prefs.getInt(_previewUsedKey) ?? 0;
-      
-      final lastUsageString = prefs.getString(_lastUsageKey);
+      final storedLastUsage = prefs.getString(_lastUsageKey);
+
+      final identificationUsage = planStatus.usageFor('crystalIdentification');
+      final lifetimeUsage = planStatus.lifetimeUsageFor('crystalIdentification');
+
+      final rawLimit = planStatus.limitFor('identifyPerDay');
+      final bool unlimited = rawLimit <= 0;
+      final int monthlyLimit = unlimited ? -1 : rawLimit;
+      final int monthlyUsage = identificationUsage;
+
+      await prefs.setInt(_monthlyCountKey, monthlyUsage);
+      if (lifetimeUsage > 0) {
+        await prefs.setInt(_totalUsageKey, lifetimeUsage);
+      }
+
       DateTime? lastUsage;
-      if (lastUsageString != null) {
-        lastUsage = DateTime.tryParse(lastUsageString);
+      if (planStatus.updatedAt != null) {
+        lastUsage = planStatus.updatedAt;
+        await prefs.setString(_lastUsageKey, planStatus.updatedAt!.toIso8601String());
+      } else if (storedLastUsage != null) {
+        lastUsage = DateTime.tryParse(storedLastUsage);
       }
-      
-      int monthlyLimit;
-      switch (tier) {
-        case SubscriptionConfig.freeTier:
-          monthlyLimit = ApiConfig.freeIdentificationsPerMonth;
-          break;
-        default:
-          monthlyLimit = -1; // Unlimited
-      }
-      
+
+      final int totalUsage = lifetimeUsage > 0
+          ? lifetimeUsage
+          : (prefs.getInt(_totalUsageKey) ?? 0);
+
       return UsageStats(
         subscriptionTier: tier,
-        monthlyUsage: monthlyCount,
+        monthlyUsage: monthlyUsage,
         monthlyLimit: monthlyLimit,
-        totalUsage: totalCount,
+        totalUsage: totalUsage,
         previewFeaturesUsed: previewsUsed,
         lastUsage: lastUsage,
-        canIdentify: monthlyLimit == -1 || monthlyCount < monthlyLimit,
+        canIdentify: unlimited || (monthlyLimit > 0 ? monthlyUsage < monthlyLimit : true),
       );
       
     } catch (e) {
