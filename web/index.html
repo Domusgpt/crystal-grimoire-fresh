@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base href="/">
+    <meta charset="UTF-8">
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+    <meta name="description" content="Crystal Grimoire progressive web app">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="manifest.json">
+    <title>Crystal Grimoire</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <script>
+      const serviceWorkerVersion = null;
+    </script>
+    <script src="flutter.js" defer></script>
+  </head>
+  <body>
+    <noscript>
+      <h1>Crystal Grimoire</h1>
+      <p>This experience requires JavaScript to be enabled.</p>
+    </noscript>
+    <script>
+      window.addEventListener('load', function () {
+        if ('serviceWorker' in navigator && !/localhost/.test(window.location)) {
+          navigator.serviceWorker.register('flutter_service_worker.js');
+        }
+        window.flutterConfiguration = {"canvasKitBaseUrl":"canvaskit/"};
+        _flutter.loader.loadEntrypoint({}).then(function (engineInitializer) {
+          return engineInitializer.initializeEngine();
+        }).then(function (appRunner) {
+          return appRunner.runApp();
+        });
+      });
+    </script>
+  </body>
+</html>

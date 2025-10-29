@@ -19,11 +19,13 @@ class EnvironmentConfig {
   
   // Firebase Configuration - Production values
   static const String _firebaseApiKey = String.fromEnvironment('FIREBASE_API_KEY', defaultValue: '');
-  static const String _firebaseProjectId = String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: 'crystalgrimoire-production');
-  static const String _firebaseAuthDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN', defaultValue: 'crystalgrimoire-production.firebaseapp.com');
-  static const String _firebaseStorageBucket = String.fromEnvironment('FIREBASE_STORAGE_BUCKET', defaultValue: 'crystalgrimoire-production.firebasestorage.app');
-  static const String _firebaseMessagingSenderId = String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID', defaultValue: '937741022651');
-  static const String _firebaseAppId = String.fromEnvironment('FIREBASE_APP_ID', defaultValue: '1:937741022651:web:cf181d053f178c9298c09e');
+  static const String _firebaseProjectId = String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: '');
+  static const String _firebaseAuthDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN', defaultValue: '');
+  static const String _firebaseStorageBucket = String.fromEnvironment('FIREBASE_STORAGE_BUCKET', defaultValue: '');
+  static const String _firebaseMessagingSenderId =
+      String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID', defaultValue: '');
+  static const String _firebaseAppId =
+      String.fromEnvironment('FIREBASE_APP_ID', defaultValue: '');
   
   // Stripe Configuration - Production Live Keys
   static const String _stripePublishableKey = String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: '');
@@ -53,6 +55,12 @@ class EnvironmentConfig {
   static const String _backendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
   static const bool _useLocalBackend =
       bool.fromEnvironment('USE_LOCAL_BACKEND', defaultValue: false);
+  static const bool _enableEconomyFunctions =
+      bool.fromEnvironment('ENABLE_ECONOMY_FUNCTIONS', defaultValue: false);
+  static const bool _enableStripeCheckout =
+      bool.fromEnvironment('ENABLE_STRIPE_CHECKOUT', defaultValue: false);
+  static const bool _enableSupportTickets =
+      bool.fromEnvironment('ENABLE_SUPPORT_TICKETS', defaultValue: false);
   static const String _termsUrl = String.fromEnvironment('TERMS_URL', defaultValue: '');
   static const String _privacyUrl = String.fromEnvironment('PRIVACY_URL', defaultValue: '');
   static const String _supportUrl = String.fromEnvironment('SUPPORT_URL', defaultValue: '');
@@ -127,7 +135,16 @@ class EnvironmentConfig {
   bool get enableAdvancedGuidance => geminiApiKey.isNotEmpty || claudeApiKey.isNotEmpty || openAIApiKey.isNotEmpty;
   bool get enableMarketplace => stripePublishableKey.isNotEmpty;
   bool get enableDailyHoroscope => horoscopeApiKey.isNotEmpty;
-  bool get enableFirebaseAuth => firebaseApiKey.isNotEmpty;
+  bool get enableFirebaseAuth => firebaseApiKey.isNotEmpty && firebaseAppId.isNotEmpty;
+  bool get enableEconomyFunctions =>
+      _enableEconomyFunctions && firebaseApiKey.isNotEmpty;
+  bool get enableStripeCheckout =>
+      _enableStripeCheckout && stripePublishableKey.isNotEmpty;
+  bool get enableSupportTickets =>
+      _enableSupportTickets && hasFirebaseConfiguration;
+
+  bool get hasFirebaseConfiguration =>
+      enableFirebaseAuth && firebaseProjectId.isNotEmpty;
   
   // Configuration validation
   List<String> validateConfiguration() {
@@ -138,7 +155,7 @@ class EnvironmentConfig {
       issues.add('No LLM API keys configured - AI features will be unavailable');
     }
     
-    if (firebaseApiKey.isEmpty) {
+    if (!hasFirebaseConfiguration) {
       issues.add('Firebase not configured - user data will not persist');
     }
     
@@ -152,6 +169,19 @@ class EnvironmentConfig {
 
     if (revenueCatApiKey.isEmpty) {
       issues.add('RevenueCat API key not configured - mobile subscription purchases will be disabled');
+    }
+
+    if (_enableEconomyFunctions && !hasFirebaseConfiguration) {
+      issues.add('ENABLE_ECONOMY_FUNCTIONS is true but Firebase is not configured.');
+    }
+
+    if (_enableStripeCheckout &&
+        (stripePublishableKey.isEmpty || !hasFirebaseConfiguration)) {
+      issues.add('ENABLE_STRIPE_CHECKOUT is true but Stripe/Firebase configuration is incomplete.');
+    }
+
+    if (_enableSupportTickets && !hasFirebaseConfiguration) {
+      issues.add('ENABLE_SUPPORT_TICKETS is true but Firebase is not configured.');
     }
 
     if (isProduction &&
@@ -184,6 +214,9 @@ class EnvironmentConfig {
         'marketplace': enableMarketplace,
         'daily_horoscope': enableDailyHoroscope,
         'firebase_auth': enableFirebaseAuth,
+        'economy_functions': enableEconomyFunctions,
+        'stripe_checkout': enableStripeCheckout,
+        'support_tickets': enableSupportTickets,
       },
       'ads': {
         'android_banner': admobAndroidBannerId.isNotEmpty ? 'configured' : 'using_test_id',
