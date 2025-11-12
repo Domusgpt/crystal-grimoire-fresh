@@ -885,7 +885,7 @@ class _SoundBathScreenState extends State<SoundBathScreen>
               ),
               boxShadow: [
                 BoxShadow(
-                  color.withOpacity(0.4),
+                  color: color.withOpacity(0.4),
                   blurRadius: 20,
                   spreadRadius: 5,
                 ),

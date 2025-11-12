@@ -125,7 +125,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen>
         value.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), '-');
     return sanitized
         .replaceAll(RegExp('^-+'), '')
-        .replaceAll(RegExp('-+$'), '');
+        .replaceAll(RegExp(r'-+$'), '');
   }
 
   Future<bool> _createListing({
