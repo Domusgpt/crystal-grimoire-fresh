@@ -12,7 +12,7 @@ import 'screens/splash_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/settings_screen.dart';
-import 'screens/subscription_screen.dart';
+// import 'screens/subscription_screen.dart'; // Temporarily disabled - needs RevenueCat package
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 
@@ -60,7 +60,7 @@ class CrystalGrimoireApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/home': (context) => const HomeScreen(),
           '/settings': (context) => const SettingsScreen(),
-          '/subscription': (context) => const SubscriptionScreen(),
+          // '/subscription': (context) => const SubscriptionScreen(), // Temporarily disabled
         },
       ),
     );

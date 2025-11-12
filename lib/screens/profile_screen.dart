@@ -752,7 +752,10 @@ class _AccountScreenState extends State<AccountScreen>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.pushNamed(context, '/subscription');
+              // Navigator.pushNamed(context, '/subscription'); // Temporarily disabled
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Subscription feature coming soon!')),
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber,

@@ -393,9 +393,11 @@ class MysticalFeatureCard extends StatelessWidget {
           ),
           ElevatedButton(
             onPressed: () {
-              final navigator = Navigator.of(context, rootNavigator: true);
               Navigator.pop(context);
-              navigator.pushNamed('/subscription');
+              // Temporarily disabled - subscription screen requires RevenueCat
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Subscription feature coming soon!')),
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber,
