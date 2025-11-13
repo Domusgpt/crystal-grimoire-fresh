@@ -120,9 +120,16 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
 
   void _showSuccessDialog() {
     if (_identificationResult == null) return;
-    
+
     final crystal = _identificationResult!;
-    
+    final identification =
+        (crystal['identification'] as Map<String, dynamic>?) ?? {};
+    final report = crystal['report']?.toString();
+    final reportParagraphs = _extractReportParagraphs(report);
+    final summary = crystal['description']?.toString() ??
+        (reportParagraphs.isNotEmpty ? reportParagraphs.first : 'No description available');
+    final confidence = identification['confidence'];
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -140,21 +147,23 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              crystal['identification']['name'] ?? 'Unknown',
+              identification['name']?.toString() ?? 'Unknown',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 color: AppTheme.mysticPink,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              crystal['description'] ?? 'No description available',
+              summary,
               style: TextStyle(color: Colors.white70),
             ),
-            const SizedBox(height: 15),
-            Text(
-              'Confidence: ${crystal['identification']['confidence'] ?? 0}%',
-              style: TextStyle(color: AppTheme.holoBlue),
-            ),
+            if (confidence != null) ...[
+              const SizedBox(height: 15),
+              Text(
+                'Confidence: ${confidence}%',
+                style: TextStyle(color: AppTheme.holoBlue),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -200,24 +209,53 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
     try {
       final identification =
           (result['identification'] as Map<String, dynamic>?) ?? {};
+      final structured =
+          (result['structured_data'] as Map<String, dynamic>?) ?? {};
       final metaphysical =
-          (result['metaphysical_properties'] as Map<String, dynamic>?) ?? {};
+          (structured['metaphysical_properties'] as Map<String, dynamic>?) ??
+              (result['metaphysical_properties'] as Map<String, dynamic>?) ??
+                  {};
+      final colors = List<String>.from(
+        (result['colors'] as List?) ??
+            (structured['colors'] as List?) ??
+            const [],
+      );
+      final geological = (structured['geological_data'] as Map<String, dynamic>?) ??
+          (result['geological_data'] as Map<String, dynamic>?) ?? {};
+      final report = result['report'];
+
+      final normalizedMetaphysical = {
+        ...metaphysical,
+        'elements': _normalizeElements(
+          metaphysical['elements'],
+          metaphysical['element'],
+        ),
+      };
 
       final data = <String, dynamic>{
-        'name': identification['name'] ?? 'Unknown Crystal',
+        'name': identification['name'] ??
+            structured['crystal_type'] ??
+            'Unknown Crystal',
         'confidence': identification['confidence'],
         'variety': identification['variety'],
-        'description': result['description'],
+        'description': result['description'] ?? report,
+        'report': report,
         'imageUrl': result['imageUrl'],
-        'metaphysicalProperties': metaphysical,
+        'metaphysicalProperties': normalizedMetaphysical,
         'healingProperties':
-            List<String>.from(metaphysical['healing_properties'] ?? const []),
+            _asStringList(metaphysical['healing_properties']),
         'primaryChakras':
-            List<String>.from(metaphysical['primary_chakras'] ?? const []),
+            _asStringList(metaphysical['primary_chakras']),
         'zodiacSigns':
-            List<String>.from(metaphysical['zodiac_signs'] ?? const []),
-        'elements':
-            List<String>.from(metaphysical['elements'] ?? const []),
+            _asStringList(metaphysical['zodiac_signs']),
+        'elements': _normalizeElements(
+          metaphysical['elements'],
+          metaphysical['element'],
+        ),
+        'colors': colors,
+        'geologicalData': geological,
+        'analysisDate': structured['analysis_date'] ?? result['analysis_date'],
+        'structuredData': structured,
         'source': 'identification',
         'createdAt': FieldValue.serverTimestamp(),
       };
@@ -424,9 +462,27 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
 
   Widget _buildResultsSection() {
     final crystal = _identificationResult!;
-    final identification = crystal['identification'] ?? {};
-    final metaphysical = crystal['metaphysical_properties'] ?? {};
-    
+    final identification =
+        (crystal['identification'] as Map<String, dynamic>?) ?? {};
+    final metaphysical =
+        (crystal['metaphysical_properties'] as Map<String, dynamic>?) ?? {};
+    final structured =
+        (crystal['structured_data'] as Map<String, dynamic>?) ?? {};
+    final colors = _mergeStringLists(crystal['colors'], structured['colors']);
+    final geological = (crystal['geological_data'] as Map<String, dynamic>?) ??
+        (structured['geological_data'] as Map<String, dynamic>?) ?? {};
+    final report = crystal['report']?.toString();
+    final reportParagraphs = _extractReportParagraphs(report);
+    final description = crystal['description']?.toString() ??
+        (reportParagraphs.isNotEmpty ? reportParagraphs.first : 'No description available');
+    final analysisDate = crystal['analysis_date']?.toString() ??
+        structured['analysis_date']?.toString();
+    final confidence = identification['confidence'];
+    final healingProperties =
+        _asStringList(metaphysical['healing_properties']);
+    final chakras = _asStringList(metaphysical['primary_chakras']);
+    final zodiacSigns = _asStringList(metaphysical['zodiac_signs']);
+
     return GlassmorphicContainer(
       borderRadius: 20,
       blur: 15,
@@ -464,38 +520,77 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
             ],
             
             const SizedBox(height: 15),
-            
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  colors: [
-                    AppTheme.holoBlue.withOpacity(0.2),
-                    AppTheme.holoPink.withOpacity(0.2),
-                  ],
+
+            if (confidence != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    colors: [
+                      AppTheme.holoBlue.withOpacity(0.2),
+                      AppTheme.holoPink.withOpacity(0.2),
+                    ],
+                  ),
+                ),
+                child: Text(
+                  'Confidence: ${confidence}%',
+                  style: TextStyle(
+                    color: AppTheme.holoBlue,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              child: Text(
-                'Confidence: ${identification['confidence'] ?? 0}%',
-                style: TextStyle(
-                  color: AppTheme.holoBlue,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            
-            const SizedBox(height: 20),
-            
+              const SizedBox(height: 20),
+            ],
+
             Text(
-              crystal['description'] ?? 'No description available',
+              description,
               style: TextStyle(
                 color: Colors.white70,
                 height: 1.5,
               ),
             ),
-            
-            if (metaphysical['healing_properties'] != null) ...[
+
+            if (reportParagraphs.length > 1) ...[
+              const SizedBox(height: 20),
+              Text(
+                '🔮 Mystic Insights',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AppTheme.holoPink,
+                ),
+              ),
+              const SizedBox(height: 10),
+              ...reportParagraphs.skip(1).map(
+                (paragraph) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    paragraph,
+                    style: const TextStyle(color: Colors.white70, height: 1.4),
+                  ),
+                ),
+              ),
+            ],
+
+            if (colors.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Text(
+                '🎨 Color Palette',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.mysticPink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: colors
+                    .map((shade) => _buildTagChip(shade))
+                    .toList(),
+              ),
+            ],
+
+            if (healingProperties.isNotEmpty) ...[
               const SizedBox(height: 20),
               Text(
                 '✨ Healing Properties',
@@ -504,25 +599,25 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
                 ),
               ),
               const SizedBox(height: 10),
-              ...((metaphysical['healing_properties'] as List?)?.map<Widget>((property) => 
-                Padding(
+              ...healingProperties.map(
+                (property) => Padding(
                   padding: const EdgeInsets.only(bottom: 5),
                   child: Row(
                     children: [
                       const Text('• ', style: TextStyle(color: AppTheme.crystalGlow)),
                       Expanded(
                         child: Text(
-                          property.toString(),
-                          style: TextStyle(color: Colors.white70),
+                          property,
+                          style: const TextStyle(color: Colors.white70),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ) ?? []),
+              ),
             ],
-            
-            if (metaphysical['primary_chakras'] != null) ...[
+
+            if (chakras.isNotEmpty) ...[
               const SizedBox(height: 15),
               Text(
                 '🌈 Chakras',
@@ -534,27 +629,139 @@ class _CrystalIdentificationScreenState extends State<CrystalIdentificationScree
               Wrap(
                 spacing: 8,
                 runSpacing: 5,
-                children: ((metaphysical['primary_chakras'] as List?)?.map<Widget>((chakra) =>
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      color: AppTheme.cosmicPurple.withOpacity(0.3),
-                      border: Border.all(color: AppTheme.cosmicPurple.withOpacity(0.5)),
-                    ),
-                    child: Text(
-                      chakra.toString(),
-                      style: TextStyle(
-                        color: AppTheme.crystalGlow,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ) ?? []).toList(),
+                children: chakras
+                    .map((chakra) => _buildTagChip(chakra))
+                    .toList(),
               ),
+            ],
+
+            if (zodiacSigns.isNotEmpty) ...[
+              const SizedBox(height: 15),
+              Text(
+                '♈ Zodiac Harmony',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.mysticPink,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Wrap(
+                spacing: 8,
+                runSpacing: 5,
+                children: zodiacSigns
+                    .map((sign) => _buildTagChip(sign))
+                    .toList(),
+              ),
+            ],
+
+            if (metaphysical['element'] != null) ...[
+              const SizedBox(height: 15),
+              _buildInfoRow('Elemental Alignment', metaphysical['element'].toString()),
+            ],
+
+            if (geological != null && geological.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Text(
+                '🪨 Geological Notes',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.mysticPink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (geological['mohs_hardness'] != null)
+                _buildInfoRow('Mohs Hardness', geological['mohs_hardness'].toString()),
+              if (geological['chemical_formula'] != null)
+                _buildInfoRow('Chemical Formula', geological['chemical_formula'].toString()),
+            ],
+
+            if (analysisDate != null) ...[
+              const SizedBox(height: 10),
+              _buildInfoRow('Analysis Date', analysisDate),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  List<String> _asStringList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((item) => item.toString())
+          .where((item) => item.trim().isNotEmpty)
+          .toList();
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      return [value.trim()];
+    }
+    return [];
+  }
+
+  List<String> _mergeStringLists(dynamic first, dynamic second) {
+    final combined = <String>{};
+    combined.addAll(_asStringList(first));
+    combined.addAll(_asStringList(second));
+    return combined.toList();
+  }
+
+  List<String> _normalizeElements(dynamic elements, dynamic elementValue) {
+    final normalized = <String>{};
+    normalized.addAll(_asStringList(elements));
+    normalized.addAll(_asStringList(elementValue));
+    return normalized.toList();
+  }
+
+  List<String> _extractReportParagraphs(String? report) {
+    if (report == null || report.trim().isEmpty) {
+      return [];
+    }
+    final cleaned = report
+        .replaceAll(RegExp(r'`+'), '')
+        .replaceAll(RegExp(r'\*{1,2}([^*]+)\*{1,2}'), r'$1');
+    return cleaned
+        .split(RegExp(r'\n{1,2}'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+  }
+
+  Widget _buildTagChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        color: AppTheme.cosmicPurple.withOpacity(0.3),
+        border: Border.all(color: AppTheme.cosmicPurple.withOpacity(0.5)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppTheme.crystalGlow,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              color: AppTheme.crystalGlow,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ),
+        ],
       ),
     );
   }
