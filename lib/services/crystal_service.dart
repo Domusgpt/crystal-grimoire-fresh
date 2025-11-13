@@ -37,30 +37,71 @@ class CrystalService extends ChangeNotifier {
       });
       
       final data = result.data as Map<String, dynamic>;
-      
+      final identification = (data['identification'] as Map<String, dynamic>?) ?? {};
+      final structured = (data['structured_data'] as Map<String, dynamic>?) ?? {};
+      final structuredMetaphysical =
+          (structured['metaphysical_properties'] as Map<String, dynamic>?) ?? {};
+      final metaphysical =
+          (data['metaphysical_properties'] as Map<String, dynamic>?) ?? structuredMetaphysical;
+      final geological = (data['geological_data'] as Map<String, dynamic>?) ??
+          (structured['geological_data'] as Map<String, dynamic>?) ?? {};
+      final colors = List<String>.from(
+        (data['colors'] as List?) ??
+            (structured['colors'] as List?) ??
+            const [],
+      );
+
+      final elementValue = structuredMetaphysical['element'] ?? metaphysical['element'];
+
+      final metaphysicalWithElements = {
+        ...metaphysical,
+        if (structuredMetaphysical.isNotEmpty) ...structuredMetaphysical,
+        if (elementValue != null) 'element': elementValue,
+        'elements': _listifyElements(
+          structuredMetaphysical['elements'] ?? metaphysical['elements'],
+          elementValue,
+        ),
+      };
+
+      final analysisDate = data['analysis_date'] ?? structured['analysis_date'];
+
+      final physicalProperties = {
+        ...((data['physical_properties'] as Map<String, dynamic>?) ?? {}),
+        if (geological['mohs_hardness'] != null)
+          'hardness': geological['mohs_hardness'],
+        if (geological['chemical_formula'] != null)
+          'chemicalFormula': geological['chemical_formula'],
+        if (analysisDate != null) 'analysisDate': analysisDate,
+        'colorRange': colors,
+      };
+
       // Create Crystal object from result
       _lastIdentifiedCrystal = Crystal(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: data['identification']['name'] ?? 'Unknown Crystal',
-        scientificName: data['identification']['scientific_name'] ?? '',
-        variety: data['identification']['variety'] ?? '',
-        imageUrl: data['imageUrl'] ?? '',
-        metaphysicalProperties: data['metaphysical_properties'] ?? {},
-        physicalProperties: data['physical_properties'] ?? {},
-        careInstructions: data['care_instructions'] ?? {},
+        name: identification['name'] ??
+            structured['crystal_type'] ??
+            'Unknown Crystal',
+        scientificName: geological['chemical_formula']?.toString() ?? '',
+        variety: identification['variety']?.toString() ?? '',
+        imageUrl: data['imageUrl']?.toString() ?? '',
+        metaphysicalProperties: metaphysicalWithElements,
+        physicalProperties: physicalProperties,
+        careInstructions:
+            (data['care_instructions'] as Map<String, dynamic>?) ?? const {},
         healingProperties: List<String>.from(
-          data['metaphysical_properties']['healing_properties'] ?? []
+          metaphysicalWithElements['healing_properties'] ?? const [],
         ),
         chakras: List<String>.from(
-          data['metaphysical_properties']['primary_chakras'] ?? []
+          metaphysicalWithElements['primary_chakras'] ?? const [],
         ),
         zodiacSigns: List<String>.from(
-          data['metaphysical_properties']['zodiac_signs'] ?? []
+          metaphysicalWithElements['zodiac_signs'] ?? const [],
         ),
         elements: List<String>.from(
-          data['metaphysical_properties']['elements'] ?? []
+          metaphysicalWithElements['elements'] ?? const [],
         ),
-        description: data['description'] ?? '',
+        description:
+            data['description']?.toString() ?? data['report']?.toString() ?? '',
       );
       
       _isIdentifying = false;
@@ -298,4 +339,24 @@ class CrystalService extends ChangeNotifier {
       return null;
     }
   }
+}
+
+List<String> _listifyElements(dynamic existing, dynamic fallback) {
+  if (existing is List) {
+    return existing.map((value) => value.toString()).where((value) => value.isNotEmpty).toList();
+  }
+
+  if (existing is String && existing.isNotEmpty) {
+    return [existing];
+  }
+
+  if (fallback is List) {
+    return fallback.map((value) => value.toString()).where((value) => value.isNotEmpty).toList();
+  }
+
+  if (fallback is String && fallback.isNotEmpty) {
+    return [fallback];
+  }
+
+  return [];
 }

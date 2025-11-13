@@ -9,6 +9,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { config } = require('firebase-functions/v1');
+const { analyzeCrystalImage } = require('./services/geminiCrystalAnalyzer');
 
 // Initialize Firebase Admin
 initializeApp();
@@ -374,89 +375,45 @@ exports.identifyCrystal = onCall(
       throw new HttpsError('unauthenticated', 'Must be authenticated to identify crystals');
     }
 
-    // Use Google AI SDK with Firebase config
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config().gemini.api_key);
-    
     try {
       const { imageData } = request.data;
       const userId = request.auth.uid;
-      
+
       if (!imageData) {
         throw new HttpsError('invalid-argument', 'Image data required');
       }
 
       console.log(`🔍 Starting crystal identification for user: ${userId}...`);
-      
-      const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-pro',
-        generationConfig: {
-          maxOutputTokens: 2048,
-          temperature: 0.4,
-          topP: 1,
-          topK: 32
-        }
-      });
-      
-      const geminiPrompt = `
-        You are a crystal identification expert. Analyze this crystal image and provide a comprehensive JSON response with the following structure:
-        {
-          "identification": {
-            "name": "Crystal Name",
-            "variety": "Specific variety if applicable",
-            "confidence": 85
-          },
-          "description": "Detailed description of the crystal's appearance and formation",
-          "metaphysical_properties": {
-            "healing_properties": ["property1", "property2"],
-            "primary_chakras": ["chakra1", "chakra2"],
-            "energy_type": "grounding/energizing/calming",
-            "planet_association": "planet name",
-            "element": "earth/air/fire/water"
-          },
-          "care_instructions": {
-            "cleansing": ["method1", "method2"],
-            "charging": ["method1", "method2"],
-            "storage": "storage instructions"
-          }
-        }
-        
-        Important: Return ONLY the JSON object, no additional text.
-      `;
+      const analysis = await analyzeCrystalImage(imageData);
 
-      const result = await model.generateContent([
-        geminiPrompt,
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageData
-          }
-        }
-      ]);
-
-      const responseText = result.response.text();
-      console.log('🤖 Gemini raw response:', responseText.substring(0, 200) + '...');
-
-      // Parse JSON response
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const crystalData = JSON.parse(cleanJson);
-
-      const confidenceRaw = crystalData?.identification?.confidence;
-      let confidence = 0;
-      if (typeof confidenceRaw === 'number') {
-        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
-      } else if (typeof confidenceRaw === 'string') {
-        const parsed = parseFloat(confidenceRaw);
-        if (!Number.isNaN(parsed)) {
-          confidence = parsed > 1 ? parsed / 100 : parsed;
-        }
-      }
+      const responsePayload = {
+        identification: analysis.identification,
+        description: analysis.description,
+        metaphysical_properties: analysis.metaphysical_properties,
+        geological_data: analysis.geological_data,
+        colors: analysis.colors,
+        report: analysis.report,
+        structured_data: {
+          ...analysis.structuredData,
+        },
+        analysis_date: analysis.structuredData?.analysis_date || null,
+        physical_properties: {
+          hardness: analysis.geological_data?.mohs_hardness || null,
+          chemical_formula: analysis.geological_data?.chemical_formula || null,
+          colorRange: analysis.colors,
+        },
+        care_instructions: {
+          cleansing: [],
+          charging: [],
+          storage: '',
+        },
+      };
 
       const candidateEntry = {
-        name: crystalData?.identification?.name || 'Unknown',
-        confidence,
-        rationale: typeof crystalData?.description === 'string' ? crystalData.description : '',
-        variety: crystalData?.identification?.variety || null,
+        name: responsePayload.identification?.name || 'Unknown',
+        confidence: responsePayload.identification?.confidence ?? null,
+        rationale: responsePayload.description || '',
+        variety: responsePayload.identification?.variety || null,
       };
 
       const imagePath = (typeof request.data?.imagePath === 'string' && request.data.imagePath.trim().length)
@@ -471,7 +428,11 @@ exports.identifyCrystal = onCall(
           confidence: candidateEntry.confidence,
           rationale: candidateEntry.rationale,
           variety: candidateEntry.variety,
+          report: responsePayload.report,
         },
+        report: responsePayload.report,
+        structuredData: responsePayload.structured_data,
+        summary: responsePayload.description,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -486,9 +447,9 @@ exports.identifyCrystal = onCall(
 
       await migrateLegacyIdentifications(userId);
 
-      console.log('✅ Crystal identified:', crystalData.identification?.name || 'Unknown');
-      
-      return crystalData;
+      console.log('✅ Crystal identified:', responsePayload.identification?.name || 'Unknown');
+
+      return responsePayload;
 
     } catch (error) {
       console.error('❌ Crystal identification error:', error);
