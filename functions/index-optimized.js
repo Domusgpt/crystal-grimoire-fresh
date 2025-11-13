@@ -7,6 +7,10 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { config } = require('firebase-functions/v1');
 const crypto = require('crypto');
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+} = require('./services/geminiCrystalAnalyzer');
 
 const db = getFirestore();
 
@@ -126,12 +130,12 @@ exports.identifyCrystalOptimized = onCall(
       throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config().gemini.api_key);
-
     try {
       const { imageData, imagePath } = request.data;
       const userId = request.auth.uid;
+      const mimeType = typeof request.data?.mimeType === 'string'
+        ? request.data.mimeType
+        : 'image/jpeg';
 
       if (!imageData) {
         throw new HttpsError('invalid-argument', 'Image data required');
@@ -161,43 +165,26 @@ exports.identifyCrystalOptimized = onCall(
 
       // OPTIMIZATION: Select model based on user tier
       const modelConfig = selectModelForTier(userTier);
-      const model = genAI.getGenerativeModel({
-        model: modelConfig.model,
-        generationConfig: {
-          maxOutputTokens: modelConfig.maxTokens,
-          temperature: 0.4,
-          topP: 1,
-          topK: 32
-        }
-      });
+      const geminiApiKey = config().gemini?.api_key;
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
+      }
 
       console.log(`🤖 Using ${modelConfig.model} (${modelConfig.costTier} tier)`);
 
-      const result = await model.generateContent([
-        CRYSTAL_ID_PROMPT,
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageData
-          }
-        }
-      ]);
+      const rawAnalysis = await analyzeCrystalImage({
+        apiKey: geminiApiKey,
+        imageData,
+        mimeType,
+        model: modelConfig.model,
+      });
 
-      const responseText = result.response.text();
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const crystalData = JSON.parse(cleanJson);
+      const crystalData = normalizeAnalysisResponse(rawAnalysis);
 
-      // Normalize confidence
-      const confidenceRaw = crystalData?.identification?.confidence;
-      let confidence = 0;
-      if (typeof confidenceRaw === 'number') {
-        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
-      } else if (typeof confidenceRaw === 'string') {
-        const parsed = parseFloat(confidenceRaw);
-        if (!Number.isNaN(parsed)) {
-          confidence = parsed > 1 ? parsed / 100 : parsed;
-        }
-      }
+      // Normalize confidence for storage (0-1 for legacy fields)
+      const confidence = typeof crystalData?.identification?.confidence === 'number'
+        ? crystalData.identification.confidence / 100
+        : 0;
 
       const candidateEntry = {
         name: crystalData?.identification?.name || 'Unknown',
@@ -218,6 +205,11 @@ exports.identifyCrystalOptimized = onCall(
           variety: candidateEntry.variety,
         },
         modelUsed: modelConfig.model,  // Track which model was used
+        analysis: crystalData,
+        reportMarkdown: crystalData.report_markdown,
+        structuredData: crystalData.structured_data,
+        colors: crystalData.colors,
+        analysisDate: crystalData.analysis_date,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -349,9 +341,6 @@ exports.identifyCrystalsBatch = onCall(
       throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config().gemini.api_key);
-
     try {
       const { images } = request.data;  // Array of {imageData, imagePath}
       const userId = request.auth.uid;
@@ -367,40 +356,28 @@ exports.identifyCrystalsBatch = onCall(
       const userTier = userData.subscriptionTier || 'free';
 
       const modelConfig = selectModelForTier(userTier);
-      const model = genAI.getGenerativeModel({
-        model: modelConfig.model,
-        generationConfig: {
-          maxOutputTokens: modelConfig.maxTokens * images.length,  // Scale with images
-          temperature: 0.4
-        }
-      });
+      const geminiApiKey = config().gemini?.api_key;
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
+      }
 
-      // Build batch prompt
-      const batchPrompt = `Analyze these ${images.length} crystal images. Return JSON array with one entry per image:\n` +
-        `[${CRYSTAL_ID_PROMPT.replace(/\n/g, ' ')}, ...]`;
-
-      // Prepare images for batch
-      const imageInputs = images.map((img, idx) => ({
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: img.imageData
-        }
-      }));
-
-      const result = await model.generateContent([batchPrompt, ...imageInputs]);
-      const responseText = result.response.text();
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const crystalsData = JSON.parse(cleanJson);
+      const analyses = await Promise.all(images.map((img, idx) => (
+        analyzeCrystalImage({
+          apiKey: geminiApiKey,
+          imageData: img.imageData,
+          mimeType: typeof img.mimeType === 'string' ? img.mimeType : 'image/jpeg',
+          model: modelConfig.model,
+        }).then(normalizeAnalysisResponse)
+      )));
 
       // Save all identifications
       const batch = db.batch();
       const results = [];
+      const batchId = `batch_${Date.now()}`;
 
-      crystalsData.forEach((crystalData, idx) => {
+      analyses.forEach((crystalData, idx) => {
         const confidence = typeof crystalData?.identification?.confidence === 'number'
-          ? (crystalData.identification.confidence > 1
-              ? crystalData.identification.confidence / 100
-              : crystalData.identification.confidence)
+          ? crystalData.identification.confidence / 100
           : 0;
 
         const identificationRef = db
@@ -417,9 +394,14 @@ exports.identifyCrystalsBatch = onCall(
             rationale: crystalData?.description || '',
             variety: crystalData?.identification?.variety || null
           }],
-          batchId: `batch_${Date.now()}`,
+          batchId,
           batchIndex: idx,
           modelUsed: modelConfig.model,
+          analysis: crystalData,
+          reportMarkdown: crystalData.report_markdown,
+          structuredData: crystalData.structured_data,
+          colors: crystalData.colors,
+          analysisDate: crystalData.analysis_date,
           createdAt: FieldValue.serverTimestamp()
         });
 
@@ -428,10 +410,10 @@ exports.identifyCrystalsBatch = onCall(
 
       await batch.commit();
 
-      console.log(`✅ Batch identified ${crystalsData.length} crystals`);
+      console.log(`✅ Batch identified ${analyses.length} crystals`);
       console.log(`💰 Cost savings: ~${((1 - (1 / images.length)) * 100).toFixed(0)}% vs individual calls`);
 
-      return { results, count: crystalsData.length };
+      return { results, count: analyses.length };
 
     } catch (error) {
       console.error('❌ Batch identification error:', error);
