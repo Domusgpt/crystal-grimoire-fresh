@@ -15,6 +15,11 @@ initializeApp();
 const db = getFirestore();
 const auth = getAuth();
 
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+} = require('./services/geminiCrystalAnalyzer');
+
 // Stripe configuration (optional)
 const stripeConfig = config().stripe || {};
 let stripeClient = null;
@@ -374,83 +379,47 @@ exports.identifyCrystal = onCall(
       throw new HttpsError('unauthenticated', 'Must be authenticated to identify crystals');
     }
 
-    // Use Google AI SDK with Firebase config
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config().gemini.api_key);
-    
     try {
       const { imageData } = request.data;
       const userId = request.auth.uid;
-      
+      const mimeType = typeof request.data?.mimeType === 'string'
+        ? request.data.mimeType
+        : 'image/jpeg';
+
       if (!imageData) {
         throw new HttpsError('invalid-argument', 'Image data required');
       }
 
       console.log(`🔍 Starting crystal identification for user: ${userId}...`);
-      
-      const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-pro',
-        generationConfig: {
-          maxOutputTokens: 2048,
-          temperature: 0.4,
-          topP: 1,
-          topK: 32
-        }
-      });
-      
-      const geminiPrompt = `
-        You are a crystal identification expert. Analyze this crystal image and provide a comprehensive JSON response with the following structure:
-        {
-          "identification": {
-            "name": "Crystal Name",
-            "variety": "Specific variety if applicable",
-            "confidence": 85
-          },
-          "description": "Detailed description of the crystal's appearance and formation",
-          "metaphysical_properties": {
-            "healing_properties": ["property1", "property2"],
-            "primary_chakras": ["chakra1", "chakra2"],
-            "energy_type": "grounding/energizing/calming",
-            "planet_association": "planet name",
-            "element": "earth/air/fire/water"
-          },
-          "care_instructions": {
-            "cleansing": ["method1", "method2"],
-            "charging": ["method1", "method2"],
-            "storage": "storage instructions"
-          }
-        }
-        
-        Important: Return ONLY the JSON object, no additional text.
-      `;
 
-      const result = await model.generateContent([
-        geminiPrompt,
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageData
-          }
-        }
-      ]);
-
-      const responseText = result.response.text();
-      console.log('🤖 Gemini raw response:', responseText.substring(0, 200) + '...');
-
-      // Parse JSON response
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const crystalData = JSON.parse(cleanJson);
-
-      const confidenceRaw = crystalData?.identification?.confidence;
-      let confidence = 0;
-      if (typeof confidenceRaw === 'number') {
-        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
-      } else if (typeof confidenceRaw === 'string') {
-        const parsed = parseFloat(confidenceRaw);
-        if (!Number.isNaN(parsed)) {
-          confidence = parsed > 1 ? parsed / 100 : parsed;
-        }
+      const geminiApiKey = config().gemini?.api_key;
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
       }
+
+      const rawAnalysis = await analyzeCrystalImage({
+        apiKey: geminiApiKey,
+        imageData,
+        mimeType,
+      });
+
+      const crystalData = normalizeAnalysisResponse(rawAnalysis);
+
+      console.log(
+        '🤖 Gemini structured response:',
+        JSON.stringify(
+          {
+            identification: crystalData.identification,
+            analysis_date: crystalData.analysis_date,
+          },
+          null,
+          2,
+        ),
+      );
+
+      const confidence = typeof crystalData?.identification?.confidence === 'number'
+        ? crystalData.identification.confidence / 100
+        : 0;
 
       const candidateEntry = {
         name: crystalData?.identification?.name || 'Unknown',
@@ -472,6 +441,11 @@ exports.identifyCrystal = onCall(
           rationale: candidateEntry.rationale,
           variety: candidateEntry.variety,
         },
+        analysis: crystalData,
+        reportMarkdown: crystalData.report_markdown,
+        structuredData: crystalData.structured_data,
+        colors: crystalData.colors,
+        analysisDate: crystalData.analysis_date,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -487,7 +461,7 @@ exports.identifyCrystal = onCall(
       await migrateLegacyIdentifications(userId);
 
       console.log('✅ Crystal identified:', crystalData.identification?.name || 'Unknown');
-      
+
       return crystalData;
 
     } catch (error) {

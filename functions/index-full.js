@@ -9,12 +9,18 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { config } = require('firebase-functions/v1');
 const vision = require('@google-cloud/vision');
 const OpenAI = require('openai');
 const Stripe = require('stripe');
 const cors = require('cors');
 const { z } = require('zod');
 const sharp = require('sharp');
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+  DEFAULT_PROMPT,
+} = require('./services/geminiCrystalAnalyzer');
 
 // Initialize Firebase Admin
 initializeApp();
@@ -88,93 +94,48 @@ exports.identifyCrystal = onCall(
         score: label.score,
       })) || [];
 
-      // Enhanced Gemini prompt with Crystal Bible knowledge
-      const geminiPrompt = `
-🔮 CRYSTAL IDENTIFICATION EXPERT SYSTEM
+      const optimizedBase64 = optimizedImage.toString('base64');
 
-You are an expert crystal healer with deep knowledge of The Crystal Bible by Judy Hall and decades of experience in crystal identification and metaphysical properties.
+      const geminiApiKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'test-key')
+        ? process.env.GEMINI_API_KEY
+        : config().gemini?.api_key;
 
-ANALYZE THIS CRYSTAL IMAGE and provide a complete JSON response:
-
-VISION LABELS DETECTED: ${JSON.stringify(labels)}
-
-Required JSON Format:
-{
-  "identification": {
-    "name": "Primary crystal name",
-    "variety": "Specific variety if applicable",
-    "scientific_name": "Chemical composition",
-    "confidence": 85
-  },
-  "metaphysical_properties": {
-    "primary_chakras": ["Root", "Heart", "Crown"],
-    "zodiac_signs": ["Aries", "Leo"],
-    "planetary_rulers": ["Mars", "Sun"],
-    "elements": ["Fire", "Earth"],
-    "healing_properties": [
-      "Enhances courage and strength",
-      "Promotes emotional healing",
-      "Increases spiritual awareness"
-    ],
-    "intentions": ["Protection", "Love", "Healing", "Manifestation"]
-  },
-  "physical_properties": {
-    "hardness": "7 (Mohs scale)",
-    "crystal_system": "Hexagonal",
-    "luster": "Vitreous",
-    "transparency": "Transparent to translucent",
-    "color_range": ["Purple", "Violet", "Clear"],
-    "formation": "Igneous/Metamorphic",
-    "chemical_formula": "SiO2",
-    "density": "2.65 g/cm³"
-  },
-  "care_instructions": {
-    "cleansing_methods": ["Running water", "Moonlight", "Sage smoke"],
-    "charging_methods": ["Sunlight", "Crystal cluster", "Earth burial"],
-    "storage_recommendations": "Keep in soft cloth away from harder stones",
-    "handling_notes": "Safe for water cleansing"
-  },
-  "description": "Comprehensive description of the crystal's appearance, formation, and significance"
-}
-
-CRITICAL REQUIREMENTS:
-- Base identification on actual visible characteristics
-- Provide complete metaphysical properties from Crystal Bible knowledge
-- Include specific healing applications
-- Give practical care instructions
-- Ensure all arrays have at least 2-3 items
-- Confidence must reflect actual certainty (60-95 range)
-      `;
-
-      // Call Gemini with the image and prompt
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      
-      const result = await model.generateContent([
-        geminiPrompt,
-        {
-          inlineData: {
-            data: optimizedImage.toString('base64'),
-            mimeType: 'image/jpeg',
-          },
-        },
-      ]);
-
-      const responseText = result.response.text();
-      console.log('🤖 Gemini response:', responseText);
-
-      // Parse JSON response
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Invalid AI response format');
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
       }
 
-      const crystalData = JSON.parse(jsonMatch[0]);
+      const visionLabelSummary = labels.length
+        ? `Observed visual cues: ${labels
+            .slice(0, 6)
+            .map(label => `${label.description} (${Math.round(label.score * 100)}%)`)
+            .join(', ')}.`
+        : '';
+
+      const prompt = visionLabelSummary
+        ? `${DEFAULT_PROMPT}\n\n${visionLabelSummary}`
+        : DEFAULT_PROMPT;
+
+      const rawAnalysis = await analyzeCrystalImage({
+        apiKey: geminiApiKey,
+        imageData: optimizedBase64,
+        mimeType: 'image/jpeg',
+        prompt,
+      });
+
+      const crystalData = normalizeAnalysisResponse(rawAnalysis);
+
+      console.log('🤖 Gemini structured response:', JSON.stringify({
+        identification: crystalData.identification,
+        analysisDate: crystalData.analysis_date,
+      }));
 
       // Save identification to database
       if (request.auth) {
         await db.collection('identifications').add({
           userId: request.auth.uid,
           crystalData,
+          structuredData: crystalData.structured_data,
+          reportMarkdown: crystalData.report_markdown,
           visionLabels: labels,
           timestamp: new Date(),
           confidence: crystalData.identification.confidence,

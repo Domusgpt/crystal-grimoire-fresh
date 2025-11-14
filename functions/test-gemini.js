@@ -2,11 +2,15 @@
  * Test script to validate Gemini integration
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+  DEFAULT_PROMPT,
+} = require('./services/geminiCrystalAnalyzer');
 
 async function testGeminiIntegration() {
   console.log('🧪 Testing Gemini integration...');
-  
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'test-key') {
     console.log('❌ No Gemini API key found');
@@ -15,30 +19,23 @@ async function testGeminiIntegration() {
   }
   
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    
-    const result = await model.generateContent([
-      'Identify this crystal and provide a brief description in JSON format with fields: name, description, healing_properties (array), metaphysical_properties (object with chakras array and energy_type)',
-      'Crystal description: A clear, six-sided pointed crystal with high clarity'
-    ]);
-    
-    const response = result.response.text();
+    const sampleImageBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+
+    const rawAnalysis = await analyzeCrystalImage({
+      apiKey,
+      imageData: sampleImageBase64,
+      mimeType: 'image/png',
+      prompt: `${DEFAULT_PROMPT}\n\nNote: This is a minimal sample image used for integration testing. If no crystal is detected, respond with Unknown.`,
+    });
+
+    const crystalData = normalizeAnalysisResponse(rawAnalysis);
+
     console.log('✅ Gemini API working!');
-    console.log('Response preview:', response.substring(0, 200) + '...');
-    
-    // Try to parse JSON
-    try {
-      const cleanJson = response.replace(/```json\n?|\n?```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
-      console.log('✅ JSON parsing successful');
-      console.log('Crystal identified as:', parsed.name || 'Unknown');
-      return true;
-    } catch (parseError) {
-      console.log('⚠️  JSON parsing failed, but API works');
-      return true;
-    }
-    
+    console.log('Crystal identified as:', crystalData.identification.name || 'Unknown');
+    console.log('Confidence:', crystalData.identification.confidence, '%');
+
+    return true;
   } catch (error) {
     console.error('❌ Gemini API error:', error.message);
     return false;
