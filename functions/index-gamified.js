@@ -8,6 +8,11 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { config } = require('firebase-functions/v1');
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+  DEFAULT_PROMPT,
+} = require('./services/geminiCrystalAnalyzer');
 
 const db = getFirestore();
 
@@ -165,40 +170,27 @@ exports.identifyCrystalGamified = onCall(
 
       console.log(`   Processed: ${preprocessed.metadata.processedWidth}x${preprocessed.metadata.processedHeight}`);
 
-      // Call Gemini
-      const { GoogleGenerativeAI } = require('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(config().gemini.api_key);
+      const geminiApiKey = config().gemini?.api_key;
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
+      }
 
-      const model = genAI.getGenerativeModel({
+      const prompt = `${DEFAULT_PROMPT}\n\nGamified mode: ${strategy.type} analysis for user rewards.`;
+
+      const rawAnalysis = await analyzeCrystalImage({
+        apiKey: geminiApiKey,
+        imageData: preprocessed.processedImage,
+        mimeType: 'image/jpeg',
         model: strategy.model,
-        generationConfig: {
-          maxOutputTokens: strategy.maxTokens,
-          temperature: 0.4
-        }
+        prompt,
       });
 
-      const prompt = `Analyze crystal. JSON only:\n{"identification":{"name":"string","variety":"string","confidence":0-100},"description":"string (max 150 chars)","metaphysical_properties":{"healing_properties":["string"],"primary_chakras":["string"],"energy_type":"grounding|energizing|calming","element":"earth|air|fire|water"}}`;
+      const crystalData = normalizeAnalysisResponse(rawAnalysis);
 
-      const result = await model.generateContent([
-        prompt,
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: preprocessed.processedImage
-          }
-        }
-      ]);
-
-      const responseText = result.response.text();
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const crystalData = JSON.parse(cleanJson);
-
-      // Normalize confidence
-      const confidenceRaw = crystalData?.identification?.confidence;
-      let confidence = 0;
-      if (typeof confidenceRaw === 'number') {
-        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
-      }
+      // Normalize confidence (0-1 for credit system)
+      const confidence = typeof crystalData?.identification?.confidence === 'number'
+        ? crystalData.identification.confidence / 100
+        : 0;
 
       console.log(`   Identified: ${crystalData.identification?.name} (${(confidence * 100).toFixed(0)}%)`);
 
@@ -233,6 +225,11 @@ exports.identifyCrystalGamified = onCall(
             metaphysicalProperties: crystalData.metaphysical_properties,
             modelUsed: strategy.model,
             analysisType: strategy.type,
+            analysis: crystalData,
+            structuredData: crystalData.structured_data,
+            reportMarkdown: crystalData.report_markdown,
+            colors: crystalData.colors,
+            analysisDate: crystalData.analysis_date,
             createdAt: FieldValue.serverTimestamp()
           });
 

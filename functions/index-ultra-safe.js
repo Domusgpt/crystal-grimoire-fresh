@@ -16,6 +16,11 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { config } = require('firebase-functions/v1');
+const {
+  analyzeCrystalImage,
+  normalizeAnalysisResponse,
+  DEFAULT_PROMPT,
+} = require('./services/geminiCrystalAnalyzer');
 
 const db = getFirestore();
 
@@ -121,7 +126,7 @@ exports.identifyCrystalSafe = onCall(
         const cached = cacheDoc.data();
         const ageHours = (Date.now() - cached.timestamp.toMillis()) / (1000 * 60 * 60);
 
-        if (ageHours < 24) {
+        if (ageHours < 24 && cached.version === 'v2') {
           console.log(`   💰 CACHE HIT! Saved $${OPERATION_COSTS[operationType]}`);
 
           // Update cache hit counter
@@ -139,61 +144,32 @@ exports.identifyCrystalSafe = onCall(
         }
       }
 
-      // PROTECTION LAYER 10: Call Gemini with safety limits
-      const { GoogleGenerativeAI } = require('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(config().gemini.api_key);
+      const geminiApiKey = config().gemini?.api_key;
+      if (!geminiApiKey) {
+        throw new HttpsError('failed-precondition', 'Gemini API key not configured');
+      }
 
-      const model = genAI.getGenerativeModel({
-        model: strategy.model,
-        generationConfig: {
-          maxOutputTokens: strategy.maxTokens,
-          temperature: 0.4,
-          topP: 1,
-          topK: 32,
-          candidateCount: 1  // Only one response to save costs
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' }
-        ]
-      });
-
-      // Compressed prompt for cost savings
-      const prompt = `Analyze crystal. JSON only:\n{"identification":{"name":"string","variety":"string","confidence":0-100},"description":"string (max 150 chars)","metaphysical_properties":{"healing_properties":["string"],"primary_chakras":["string"],"energy_type":"grounding|energizing|calming","element":"earth|air|fire|water"},"care_instructions":{"cleansing":["method"],"charging":["method"]}}`;
+      const prompt = `${DEFAULT_PROMPT}\n\nAnalysis mode: ${strategy.type} using ${preprocessed.metadata.gridSize} grid.`;
 
       console.log(`   🤖 Calling Gemini (${strategy.model})...`);
       const startTime = Date.now();
 
-      const result = await model.generateContent([
+      const rawAnalysis = await analyzeCrystalImage({
+        apiKey: geminiApiKey,
+        imageData: preprocessed.processedImage,
+        mimeType: 'image/jpeg',
+        model: strategy.model,
         prompt,
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: preprocessed.processedImage
-          }
-        }
-      ]);
+      });
 
       const aiLatency = Date.now() - startTime;
       console.log(`   ✅ Gemini response in ${aiLatency}ms`);
 
-      const responseText = result.response.text();
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      let crystalData;
+      let crystalData = normalizeAnalysisResponse(rawAnalysis);
 
-      try {
-        crystalData = JSON.parse(cleanJson);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        throw new HttpsError('internal', 'AI response parsing failed');
-      }
-
-      // Normalize confidence
-      const confidenceRaw = crystalData?.identification?.confidence;
-      let confidence = 0;
-      if (typeof confidenceRaw === 'number') {
-        confidence = confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw;
-      }
+      let confidence = typeof crystalData?.identification?.confidence === 'number'
+        ? crystalData.identification.confidence / 100
+        : 0;
 
       console.log(`   Identified: ${crystalData.identification?.name} (${(confidence * 100).toFixed(0)}% confidence)`);
 
@@ -217,33 +193,20 @@ exports.identifyCrystalSafe = onCall(
             'progressive'
           );
 
-          // Call Gemini again with better image
-          const progressiveModel = genAI.getGenerativeModel({
+          const progressivePrompt = `${DEFAULT_PROMPT}\n\nProgressive analysis following low confidence (${(confidence * 100).toFixed(0)}%).`;
+
+          const progressiveRaw = await analyzeCrystalImage({
+            apiKey: geminiApiKey,
+            imageData: progressivePreprocessed.processedImage,
+            mimeType: 'image/jpeg',
             model: progressiveStrategy.model,
-            generationConfig: {
-              maxOutputTokens: progressiveStrategy.maxTokens,
-              temperature: 0.4
-            }
+            prompt: progressivePrompt,
           });
 
-          const progressiveResult = await progressiveModel.generateContent([
-            prompt,
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: progressivePreprocessed.processedImage
-              }
-            }
-          ]);
-
-          const progressiveText = progressiveResult.response.text();
-          const progressiveJson = progressiveText.replace(/```json\n?|\n?```/g, '').trim();
-          progressiveData = JSON.parse(progressiveJson);
+          progressiveData = normalizeAnalysisResponse(progressiveRaw);
 
           const newConfidence = typeof progressiveData?.identification?.confidence === 'number'
-            ? (progressiveData.identification.confidence > 1
-                ? progressiveData.identification.confidence / 100
-                : progressiveData.identification.confidence)
+            ? progressiveData.identification.confidence / 100
             : confidence;
 
           console.log(`   ✅ Progressive analysis: ${progressiveData.identification?.name} (${(newConfidence * 100).toFixed(0)}%)`);
@@ -281,6 +244,7 @@ exports.identifyCrystalSafe = onCall(
       queryTracker.track('write', 'ai_cache');
       await db.collection('ai_cache').doc(cacheKey).set({
         response: crystalData,
+        version: 'v2',
         timestamp: Timestamp.now(),
         hits: 0,
         userTier,
@@ -461,6 +425,11 @@ async function saveIdentification(userId, crystalData, preprocessed, strategy, q
     modelUsed: strategy.model,
     analysisType: strategy.type,
     gridSize: preprocessed.metadata.gridSize,
+    analysis: crystalData,
+    structuredData: crystalData.structured_data,
+    reportMarkdown: crystalData.report_markdown,
+    colors: crystalData.colors,
+    analysisDate: crystalData.analysis_date,
     imageMetadata: {
       originalSize: preprocessed.metadata.originalSize,
       processedSize: preprocessed.metadata.processedSize,
