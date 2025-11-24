@@ -3,6 +3,12 @@ if (typeof gsap !== 'undefined') {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const reduceMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const prefersReducedMotion = reduceMotionMedia.matches;
+  if (prefersReducedMotion) {
+    document.body.classList.add('reduce-motion');
+  }
+
   const hero = document.getElementById('morphing-hero');
   const heroContent = document.querySelector('.hero-content');
   const layers = gsap.utils.toArray('.hero-bg .layer');
@@ -10,13 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const heroCard = document.getElementById('crystal-card');
   const journeySteps = gsap.utils.toArray('.journey-step');
   const featureCards = gsap.utils.toArray('.feature-card');
+  const scrollSpan = () => `+=${Math.round(window.innerHeight * 8)}`;
 
-  if (hero) {
+  if (hero && !prefersReducedMotion) {
     const heroTl = gsap.timeline({
       scrollTrigger: {
         trigger: hero,
         start: 'top top',
-        end: '+=8000',
+        end: scrollSpan,
         scrub: true,
         pin: '.pinned-viewport',
         anticipatePin: 1,
@@ -40,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
         scrollTrigger: {
           trigger: hero,
           start: 'top top',
-          end: '+=8000',
+          end: scrollSpan,
           scrub: true,
         },
       });
@@ -56,7 +63,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (heroCopy) {
+  if (hero && prefersReducedMotion) {
+    layers.forEach((layer, index) => {
+      layer.style.opacity = `${0.55 + index * 0.1}`;
+      layer.style.filter = 'blur(0px)';
+    });
+  }
+
+  if (heroCopy && !prefersReducedMotion) {
     gsap.fromTo(heroCopy.querySelectorAll('.eyebrow, h1, .lede, .hero-actions, .microcopy'), {
       opacity: 0,
       y: 16,
@@ -69,32 +83,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  featureCards.forEach((card, i) => {
-    gsap.from(card, {
-      opacity: 0,
-      y: 22,
-      duration: 0.8,
-      ease: 'power2.out',
-      delay: i * 0.05,
-      scrollTrigger: {
-        trigger: card,
-        start: 'top 85%',
-      },
+  if (!prefersReducedMotion) {
+    featureCards.forEach((card, i) => {
+      gsap.from(card, {
+        opacity: 0,
+        y: 22,
+        duration: 0.8,
+        ease: 'power2.out',
+        delay: i * 0.05,
+        scrollTrigger: {
+          trigger: card,
+          start: 'top 85%',
+        },
+      });
     });
-  });
+  } else {
+    featureCards.forEach((card) => {
+      card.style.opacity = '1';
+      card.style.transform = 'none';
+    });
+  }
 
-  journeySteps.forEach((step, i) => {
-    gsap.from(step, {
-      opacity: 0,
-      y: 18,
-      duration: 0.7,
-      delay: i * 0.08,
-      scrollTrigger: {
-        trigger: step,
-        start: 'top 80%',
-      },
+  if (!prefersReducedMotion) {
+    journeySteps.forEach((step, i) => {
+      gsap.from(step, {
+        opacity: 0,
+        y: 18,
+        duration: 0.7,
+        delay: i * 0.08,
+        scrollTrigger: {
+          trigger: step,
+          start: 'top 80%',
+        },
+      });
     });
-  });
+  }
 
   if (heroCard && window.visualizerControl) {
     ScrollTrigger.create({
@@ -121,6 +144,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const ctaForm = document.querySelector('.cta-form');
   if (ctaForm) {
+    const microcopy = ctaForm.querySelector('.microcopy');
+    if (microcopy) {
+      microcopy.setAttribute('aria-live', 'polite');
+    }
+
     ctaForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const button = ctaForm.querySelector('button');

@@ -19,6 +19,8 @@ a { color: var(--holo); text-decoration: none; }
 
 a:hover { color: var(--mint); }
 
+.no-script { display: block; text-align: center; background: rgba(255,255,255,0.06); color: var(--holo); padding: 8px 14px; font-size: 13px; letter-spacing: 0.02em; }
+
 .grain { position: fixed; inset: 0; pointer-events: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23noise)' opacity='0.18'/%3E%3C/svg%3E"); mix-blend-mode: screen; opacity: 0.35; }
 
 .site-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 18px 48px; background: linear-gradient(180deg, rgba(13,8,24,0.9) 0%, rgba(13,8,24,0.65) 65%, transparent 100%); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(255,255,255,0.04); }
@@ -89,6 +91,7 @@ a:hover { color: var(--mint); }
 .cta-form input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--holo); outline: none; transition: border-color 0.3s ease; }
 .cta-form input:focus { border-color: var(--mint); box-shadow: 0 0 0 1px rgba(85,255,211,0.4); }
 .cta-form button { margin-top: 6px; }
+.cta-form .microcopy { margin: 0; }
 
 .site-footer { text-align: center; padding: 32px 16px 40px; color: var(--muted); font-size: 14px; }
 
@@ -105,3 +108,9 @@ a:hover { color: var(--mint); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+body.reduce-motion #morphing-hero { height: auto; }
+body.reduce-motion .pinned-viewport { position: relative; height: auto; min-height: 90vh; }
+body.reduce-motion .hero-bg { position: absolute; inset: 0; }
+body.reduce-motion .hero-bg .layer { transform: translate3d(0, 0, 0) scale(1); opacity: 0.75; }
+body.reduce-motion .hero-card { transform: none !important; box-shadow: 0 14px 90px rgba(0,0,0,0.35); }
