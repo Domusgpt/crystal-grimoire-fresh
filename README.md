@@ -124,6 +124,12 @@ The `public/` directory contains the static landing experience. A GitHub Actions
 
 > All assets use relative paths, so the page works whether it is served from the root domain or a Pages subpath.
 
+#### Local preview + phased testing
+- Serve the static site locally: `python -m http.server 3000 --directory public` then visit `http://localhost:3000`.
+- Verify hero morphing journey: scroll the pinned hero to confirm the four epitaxial states and progress bar advance smoothly.
+- Toggle “Reduce motion” in system accessibility settings to confirm pinned sections unpin and the canvas visualizer stays idle.
+- Inspect beta form validation (required email) and CTA microcopy update after submit.
+
 ### Environment Variables
 ```bash
 # Required in Firebase Functions config

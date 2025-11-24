@@ -1,8 +1,9 @@
-if (typeof gsap !== 'undefined') {
-  gsap.registerPlugin(ScrollTrigger);
-}
-
 document.addEventListener('DOMContentLoaded', () => {
+  const hasGSAP = typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined';
+  if (hasGSAP) {
+    gsap.registerPlugin(ScrollTrigger);
+  }
+
   const reduceMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)');
   const prefersReducedMotion = reduceMotionMedia.matches;
   if (prefersReducedMotion) {
@@ -11,14 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const hero = document.getElementById('morphing-hero');
   const heroContent = document.querySelector('.hero-content');
-  const layers = gsap.utils.toArray('.hero-bg .layer');
+  const layers = hasGSAP ? gsap.utils.toArray('.hero-bg .layer') : [];
   const heroCopy = document.querySelector('.hero-copy');
   const heroCard = document.getElementById('crystal-card');
-  const journeySteps = gsap.utils.toArray('.journey-step');
-  const featureCards = gsap.utils.toArray('.feature-card');
+  const journeySteps = hasGSAP ? gsap.utils.toArray('.journey-step') : [];
+  const featureCards = hasGSAP ? gsap.utils.toArray('.feature-card') : [];
   const scrollSpan = () => `+=${Math.round(window.innerHeight * 8)}`;
+  const stateMarkers = hasGSAP ? gsap.utils.toArray('.hero-state') : [];
+  const stateBarFill = document.querySelector('.hero-progress .fill');
 
-  if (hero && !prefersReducedMotion) {
+  if (hero && !prefersReducedMotion && hasGSAP) {
     const heroTl = gsap.timeline({
       scrollTrigger: {
         trigger: hero,
@@ -70,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (heroCopy && !prefersReducedMotion) {
+  if (heroCopy && !prefersReducedMotion && hasGSAP) {
     gsap.fromTo(heroCopy.querySelectorAll('.eyebrow, h1, .lede, .hero-actions, .microcopy'), {
       opacity: 0,
       y: 16,
@@ -83,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (!prefersReducedMotion) {
+  if (!prefersReducedMotion && hasGSAP) {
     featureCards.forEach((card, i) => {
       gsap.from(card, {
         opacity: 0,
@@ -104,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (!prefersReducedMotion) {
+  if (!prefersReducedMotion && hasGSAP) {
     journeySteps.forEach((step, i) => {
       gsap.from(step, {
         opacity: 0,
@@ -119,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (heroCard && window.visualizerControl) {
+  if (heroCard && window.visualizerControl && hasGSAP) {
     ScrollTrigger.create({
       trigger: heroCard,
       start: 'top 80%',
@@ -138,6 +141,29 @@ document.addEventListener('DOMContentLoaded', () => {
         start: 'top center',
         end: 'bottom center',
         scrub: true,
+      },
+    });
+  }
+
+  if (hero && hasGSAP && stateMarkers.length > 0 && !prefersReducedMotion) {
+    ScrollTrigger.create({
+      trigger: hero,
+      start: 'top top',
+      end: scrollSpan,
+      scrub: true,
+      onUpdate: (self) => {
+        const progress = self.progress;
+        if (stateBarFill) {
+          stateBarFill.style.setProperty('--hero-progress', `${progress * 100}%`);
+        }
+
+        stateMarkers.forEach((marker, idx) => {
+          const segment = idx / (stateMarkers.length - 1);
+          const nextSegment = (idx + 1) / (stateMarkers.length - 1);
+          const isActive = progress >= segment - 0.001 && progress < (nextSegment || 1.01);
+          marker.classList.toggle('active', isActive);
+          marker.setAttribute('aria-current', isActive ? 'step' : 'false');
+        });
       },
     });
   }

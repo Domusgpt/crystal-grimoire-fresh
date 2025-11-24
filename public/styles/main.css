@@ -67,6 +67,13 @@ a:hover { color: var(--mint); }
 .pill-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .pill-list li { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); padding: 8px 12px; border-radius: 999px; color: var(--holo); font-weight: 600; font-size: 13px; }
 
+.hero-states { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; align-items: center; width: min(1100px, 90vw); z-index: 4; padding: 16px 20px; background: rgba(8,6,14,0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; box-shadow: 0 20px 120px rgba(0,0,0,0.35); backdrop-filter: blur(12px); }
+.hero-progress { grid-column: 1 / -1; height: 4px; width: 100%; background: rgba(255,255,255,0.08); border-radius: 999px; position: relative; overflow: hidden; }
+.hero-progress .fill { position: absolute; inset: 0; width: var(--hero-progress, 8%); background: linear-gradient(90deg, rgba(85,255,211,0.8), rgba(82,32,255,0.8)); border-radius: inherit; transition: width 0.2s ease; }
+.hero-state { padding: 8px 0; border-left: 2px solid rgba(255,255,255,0.1); padding-left: 12px; opacity: 0.7; transition: opacity 0.3s ease, border-color 0.3s ease; }
+.hero-state .state-body { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.hero-state.active { opacity: 1; border-color: rgba(85,255,211,0.9); }
+
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
 .feature-card { background: linear-gradient(160deg, rgba(82,32,255,0.18), rgba(85,255,211,0.08)); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 20px; box-shadow: 0 10px 60px rgba(0,0,0,0.35); backdrop-filter: blur(12px); position: relative; overflow: hidden; }
 .feature-card h4 { margin: 0 0 8px; font-family: 'Space Grotesk', 'Inter', sans-serif; }
@@ -93,6 +100,16 @@ a:hover { color: var(--mint); }
 .cta-form button { margin-top: 6px; }
 .cta-form .microcopy { margin: 0; }
 
+.beta-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 18px; }
+.checklist, .faq { background: rgba(13,9,22,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 18px; box-shadow: 0 10px 80px rgba(0,0,0,0.35); }
+.checklist ul { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
+.checklist li { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 8px; color: var(--muted); }
+.checklist .dot { width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, var(--mint), var(--iris)); box-shadow: 0 0 12px rgba(85,255,211,0.7); }
+.faq { display: grid; gap: 10px; }
+.faq-item { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 12px; }
+.faq-item h4 { margin: 0 0 6px; font-size: 16px; }
+.faq-item p { margin: 0; color: var(--muted); line-height: 1.4; }
+
 .site-footer { text-align: center; padding: 32px 16px 40px; color: var(--muted); font-size: 14px; }
 
 @keyframes rotateGlow { to { transform: rotate(360deg); } }
@@ -103,6 +120,7 @@ a:hover { color: var(--mint); }
   .hero-content { grid-template-columns: 1fr; padding: 24px; }
   .main-nav { width: 100%; justify-content: center; }
   .section { padding: 80px 20px; }
+  .hero-states { position: relative; left: auto; transform: none; width: 100%; margin-top: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
