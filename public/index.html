@@ -1,802 +1,174 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔮 Crystal Grimoire - AI-Powered Crystal Identification</title>
-    
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js';
-        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-
-        // Firebase configuration
-        const firebaseConfig = {
-            projectId: "crystal-grimoire-2025",
-            appId: "1:513072589861:web:9168cf06b3bda7bbbce3cc",
-            storageBucket: "crystal-grimoire-2025.firebasestorage.app",
-            apiKey: "AIzaSyCJmhjH8HS3yHwwoZ9qCSKyNPCR5XRVxTI",
-            authDomain: "crystal-grimoire-2025.firebaseapp.com",
-            messagingSenderId: "513072589861"
-        };
-
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const functions = getFunctions(app, 'us-central1');
-        const db = getFirestore(app);
-
-        // Global variables
-        let currentUser = null;
-
-        // Authentication state observer
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            updateUI();
-        });
-
-        function updateUI() {
-            const authSection = document.getElementById('auth-section');
-            const appSection = document.getElementById('app-section');
-            const userEmail = document.getElementById('user-email');
-            
-            if (currentUser) {
-                authSection.style.display = 'none';
-                appSection.style.display = 'block';
-                userEmail.textContent = currentUser.email;
-                loadUserData();
-            } else {
-                authSection.style.display = 'block';
-                appSection.style.display = 'none';
-            }
-        }
-
-        // Authentication functions
-        window.register = async function() {
-            const email = document.getElementById('reg-email').value;
-            const password = document.getElementById('reg-password').value;
-            
-            if (!email || !password) {
-                showMessage('Please fill in all fields', 'error');
-                return;
-            }
-            
-            try {
-                await createUserWithEmailAndPassword(auth, email, password);
-                showMessage('✅ Account created successfully!', 'success');
-            } catch (error) {
-                if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
-                } else {
-                    showMessage(`❌ ${error.message}`, 'error');
-                }
-            }
-        }
-
-        window.login = async function() {
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            
-            if (!email || !password) {
-                showMessage('Please fill in all fields', 'error');
-                return;
-            }
-            
-            try {
-                await signInWithEmailAndPassword(auth, email, password);
-                showMessage('✅ Signed in successfully!', 'success');
-            } catch (error) {
-                if (error.code === 'auth/configuration-not-found') {
-                    showMessage('⚠️ Firebase Auth not configured yet. Click "Skip Auth" to use the app!', 'warning');
-                } else {
-                    showMessage(`❌ ${error.message}`, 'error');
-                }
-            }
-        }
-
-        window.logout = async function() {
-            try {
-                await signOut(auth);
-                showMessage('👋 Signed out successfully', 'success');
-            } catch (error) {
-                console.error('Logout error:', error);
-            }
-        }
-
-        window.skipAuth = function() {
-            // Simulate logged in state for demo
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('app-section').style.display = 'block';
-            document.getElementById('user-email').textContent = 'Demo User (No Auth)';
-            document.getElementById('auth-status').textContent = 'Demo Mode - Auth not required';
-        }
-
-        // Crystal guidance function
-        window.getCrystalGuidance = async function() {
-            const question = document.getElementById('question').value;
-            const intentions = document.getElementById('intentions').value.split(',').map(i => i.trim());
-            const experience = document.getElementById('experience').value;
-
-            if (!question.trim()) {
-                showGuidanceResult('<div class="error">Please enter a question</div>');
-                return;
-            }
-
-            showGuidanceResult('<div class="loading">🔮 Consulting the crystal wisdom...</div>');
-
-            try {
-                const getCrystalGuidance = httpsCallable(functions, 'getCrystalGuidance');
-                const result = await getCrystalGuidance({
-                    question,
-                    intentions: intentions.filter(i => i),
-                    experience
-                });
-
-                displayGuidanceResult(result.data);
-
-            } catch (error) {
-                if (error.code === 'functions/unauthenticated') {
-                    showGuidanceResult(`
-                        <div class="warning">
-                            <h3>🔐 Authentication Required</h3>
-                            <p>This feature requires you to be signed in. Please:</p>
-                            <ol>
-                                <li>Enable Firebase Auth in console</li>
-                                <li>Create an account or sign in</li>
-                                <li>Try your question again</li>
-                            </ol>
-                            <p><strong>Or use "Skip Auth" for demo mode!</strong></p>
-                        </div>
-                    `);
-                } else {
-                    showGuidanceResult(`<div class="error">❌ ${error.message}</div>`);
-                }
-            }
-        }
-
-        function displayGuidanceResult(guidance) {
-            const html = `
-                <div class="guidance-response">
-                    <div class="crystal-header">
-                        <h3>🔮 Crystal Wisdom Revealed</h3>
-                        <div class="mystical-border"></div>
-                    </div>
-                    
-                    <div class="recommended-crystals">
-                        <h4>💎 Your Sacred Crystals:</h4>
-                        ${guidance.recommended_crystals ? guidance.recommended_crystals.map(crystal => `
-                            <div class="crystal-card">
-                                <div class="crystal-name">${crystal.name}</div>
-                                <div class="crystal-reason"><strong>Divine Purpose:</strong> ${crystal.reason}</div>
-                                <div class="crystal-usage"><strong>Sacred Practice:</strong> ${crystal.how_to_use}</div>
-                            </div>
-                        `).join('') : '<p>Loading crystal recommendations...</p>'}
-                    </div>
-
-                    <div class="spiritual-guidance">
-                        <h4>🌟 Spiritual Guidance:</h4>
-                        <div class="guidance-text">${guidance.guidance || 'Your guidance is being channeled...'}</div>
-                    </div>
-
-                    <div class="personal-affirmation">
-                        <h4>✨ Personal Affirmation:</h4>
-                        <div class="affirmation-text">"${guidance.affirmation || 'I am open to crystal wisdom...'}"</div>
-                    </div>
-
-                    <div class="meditation-practice">
-                        <h4>🧘 Meditation Practice:</h4>
-                        <div class="meditation-text">${guidance.meditation_tip || 'Hold your chosen crystal during meditation...'}</div>
-                    </div>
-                </div>
-            `;
-            showGuidanceResult(html);
-        }
-
-        function showGuidanceResult(html) {
-            document.getElementById('guidance-result').innerHTML = html;
-        }
-
-        function showMessage(message, type) {
-            const messageDiv = document.getElementById('auth-message');
-            messageDiv.innerHTML = `<div class="${type}">${message}</div>`;
-            setTimeout(() => messageDiv.innerHTML = '', 5000);
-        }
-
-        function loadUserData() {
-            // Load user's previous sessions or data
-            console.log('Loading user data for:', currentUser?.email);
-        }
-
-        // Navigation functions
-        window.showSection = function(sectionName) {
-            // Hide all sections
-            const sections = ['crystal-identification', 'moon-rituals', 'crystal-healing', 'dream-journal', 'sound-bath', 'marketplace'];
-            sections.forEach(section => {
-                const element = document.getElementById(section + '-section');
-                if (element) element.style.display = 'none';
-            });
-            
-            // Show selected section
-            const targetSection = document.getElementById(sectionName + '-section');
-            if (targetSection) {
-                targetSection.style.display = 'block';
-            }
-        }
-
-        // Initialize floating crystals animation
-        document.addEventListener('DOMContentLoaded', function() {
-            createFloatingCrystals();
-            startCrystalAnimation();
-        });
-
-        function createFloatingCrystals() {
-            const container = document.getElementById('floating-crystals');
-            const colors = ['#E0AAFF', '#C77DFF', '#9D4EDD', '#7B2CBF', '#5A189A'];
-            
-            for (let i = 0; i < 15; i++) {
-                const crystal = document.createElement('div');
-                crystal.className = 'floating-crystal';
-                crystal.style.left = Math.random() * 100 + '%';
-                crystal.style.animationDelay = Math.random() * 10 + 's';
-                crystal.style.animationDuration = (Math.random() * 10 + 15) + 's';
-                crystal.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-                container.appendChild(crystal);
-            }
-        }
-
-        function startCrystalAnimation() {
-            const crystals = document.querySelectorAll('.floating-crystal');
-            crystals.forEach(crystal => {
-                crystal.addEventListener('animationiteration', () => {
-                    crystal.style.left = Math.random() * 100 + '%';
-                });
-            });
-        }
-    </script>
-
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: linear-gradient(135deg, #0D0221 0%, #2D1B69 25%, #5A189A 50%, #7B2CBF 75%, #9D4EDD 100%);
-            color: #E0AAFF;
-            min-height: 100vh;
-            overflow-x: hidden;
-            position: relative;
-        }
-
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: radial-gradient(circle at 25% 25%, rgba(157, 78, 221, 0.3) 0%, transparent 50%),
-                        radial-gradient(circle at 75% 75%, rgba(192, 132, 252, 0.2) 0%, transparent 50%),
-                        radial-gradient(circle at 50% 50%, rgba(139, 69, 19, 0.1) 0%, transparent 50%);
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        #floating-crystals {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .floating-crystal {
-            position: absolute;
-            width: 8px;
-            height: 8px;
-            background: #E0AAFF;
-            border-radius: 50%;
-            opacity: 0.6;
-            animation: float 20s infinite linear;
-            box-shadow: 0 0 10px currentColor;
-        }
-
-        @keyframes float {
-            from {
-                transform: translateY(100vh) rotate(0deg);
-                opacity: 0;
-            }
-            10% {
-                opacity: 0.6;
-            }
-            90% {
-                opacity: 0.6;
-            }
-            to {
-                transform: translateY(-100px) rotate(360deg);
-                opacity: 0;
-            }
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            position: relative;
-            z-index: 10;
-        }
-
-        .glassmorphic-container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            border-radius: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 40px;
-            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.2);
-            margin-bottom: 30px;
-        }
-
-        .app-header {
-            text-align: center;
-            margin-bottom: 50px;
-        }
-
-        .app-title {
-            font-size: 4em;
-            font-weight: 700;
-            background: linear-gradient(45deg, #E0AAFF, #C77DFF, #9D4EDD);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 15px;
-            text-shadow: 0 0 30px rgba(224, 170, 255, 0.3);
-        }
-
-        .app-subtitle {
-            font-size: 1.4em;
-            color: #C77DFF;
-            font-weight: 300;
-            opacity: 0.9;
-        }
-
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 25px;
-            margin: 40px 0;
-        }
-
-        .feature-card {
-            background: linear-gradient(135deg, rgba(157, 78, 221, 0.15), rgba(192, 132, 252, 0.1));
-            border-radius: 20px;
-            padding: 30px;
-            border: 1px solid rgba(224, 170, 255, 0.2);
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(157, 78, 221, 0.3);
-            border-color: rgba(224, 170, 255, 0.5);
-        }
-
-        .feature-icon {
-            font-size: 3em;
-            margin-bottom: 20px;
-            display: block;
-        }
-
-        .feature-title {
-            font-size: 1.5em;
-            font-weight: 600;
-            color: #E0AAFF;
-            margin-bottom: 15px;
-        }
-
-        .feature-description {
-            color: #C77DFF;
-            line-height: 1.6;
-            opacity: 0.9;
-        }
-
-        .auth-forms {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            margin-bottom: 30px;
-        }
-
-        .auth-form {
-            background: rgba(255, 255, 255, 0.03);
-            padding: 30px;
-            border-radius: 20px;
-            border: 1px solid rgba(224, 170, 255, 0.1);
-        }
-
-        .auth-form h3 {
-            color: #E0AAFF;
-            margin-bottom: 25px;
-            font-size: 1.5em;
-            text-align: center;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #C77DFF;
-            font-weight: 500;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 15px 20px;
-            border: 2px solid rgba(224, 170, 255, 0.2);
-            border-radius: 15px;
-            background: rgba(255, 255, 255, 0.05);
-            color: #E0AAFF;
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #9D4EDD;
-            box-shadow: 0 0 20px rgba(157, 78, 221, 0.3);
-        }
-
-        .form-group input::placeholder,
-        .form-group textarea::placeholder {
-            color: rgba(199, 125, 255, 0.6);
-        }
-
-        .mystical-button {
-            background: linear-gradient(45deg, #9D4EDD, #C77DFF, #E0AAFF);
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .mystical-button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 30px rgba(157, 78, 221, 0.4);
-        }
-
-        .mystical-button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            transition: left 0.6s;
-        }
-
-        .mystical-button:hover::before {
-            left: 100%;
-        }
-
-        .success, .error, .warning, .loading {
-            padding: 15px 20px;
-            border-radius: 15px;
-            margin: 15px 0;
-            border-left: 4px solid;
-        }
-
-        .success {
-            background: rgba(34, 197, 94, 0.2);
-            border-color: #22C55E;
-            color: #86EFAC;
-        }
-
-        .error {
-            background: rgba(239, 68, 68, 0.2);
-            border-color: #EF4444;
-            color: #FCA5A5;
-        }
-
-        .warning {
-            background: rgba(245, 158, 11, 0.2);
-            border-color: #F59E0B;
-            color: #FCD34D;
-        }
-
-        .loading {
-            background: rgba(168, 85, 247, 0.2);
-            border-color: #A855F7;
-            color: #DDD6FE;
-            text-align: center;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        .guidance-response {
-            background: linear-gradient(135deg, rgba(157, 78, 221, 0.1), rgba(192, 132, 252, 0.05));
-            border-radius: 20px;
-            padding: 30px;
-            margin-top: 20px;
-            border: 1px solid rgba(224, 170, 255, 0.2);
-        }
-
-        .crystal-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .crystal-header h3 {
-            font-size: 2em;
-            color: #E0AAFF;
-            margin-bottom: 15px;
-        }
-
-        .mystical-border {
-            height: 2px;
-            background: linear-gradient(90deg, transparent, #9D4EDD, #C77DFF, #E0AAFF, #C77DFF, #9D4EDD, transparent);
-            border-radius: 2px;
-        }
-
-        .crystal-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 15px;
-            border: 1px solid rgba(224, 170, 255, 0.1);
-        }
-
-        .crystal-name {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #E0AAFF;
-            margin-bottom: 10px;
-        }
-
-        .crystal-reason,
-        .crystal-usage {
-            margin-bottom: 10px;
-            color: #C77DFF;
-            line-height: 1.5;
-        }
-
-        .spiritual-guidance,
-        .personal-affirmation,
-        .meditation-practice {
-            margin-top: 25px;
-        }
-
-        .spiritual-guidance h4,
-        .personal-affirmation h4,
-        .meditation-practice h4 {
-            color: #E0AAFF;
-            font-size: 1.2em;
-            margin-bottom: 15px;
-        }
-
-        .guidance-text,
-        .affirmation-text,
-        .meditation-text {
-            color: #C77DFF;
-            line-height: 1.6;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 10px;
-        }
-
-        .affirmation-text {
-            font-style: italic;
-            font-size: 1.1em;
-            text-align: center;
-            border: 2px solid rgba(224, 170, 255, 0.2);
-        }
-
-        .skip-auth-section {
-            text-align: center;
-            margin-top: 30px;
-            padding: 25px;
-            background: rgba(245, 158, 11, 0.1);
-            border-radius: 15px;
-            border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-
-        .user-info {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(34, 197, 94, 0.1);
-            border-radius: 15px;
-            border: 1px solid rgba(34, 197, 94, 0.3);
-        }
-
-        #app-section {
-            display: none;
-        }
-
-        @media (max-width: 768px) {
-            .app-title {
-                font-size: 2.5em;
-            }
-            
-            .auth-forms {
-                grid-template-columns: 1fr;
-            }
-            
-            .feature-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .container {
-                padding: 15px;
-            }
-            
-            .glassmorphic-container {
-                padding: 25px;
-            }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crystal Grimoire — Neo-Spiritual AI for Crystal Seekers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/main.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" integrity="sha512-tPUyrxlbxOgT8Hj5+u36EMv7vm6eyhwloJUfSe3QPz4eHE9vYCAlz3cKDrbk1kCS4f8igmxIfN6i8lX3VN2S3g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" integrity="sha512-wyY0Mq3yAqS2rp/KklpBnhRXwvM8lpTvFPQKGK7EZt21Dcg5k8y4IZ4h3O1YdbwOXmzMMpzckafA8swzw0wg7Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
-    <div id="floating-crystals"></div>
-    
-    <div class="container">
-        <!-- Authentication Section -->
-        <div id="auth-section">
-            <div class="glassmorphic-container">
-                <div class="app-header">
-                    <h1 class="app-title">🔮 Crystal Grimoire</h1>
-                    <p class="app-subtitle">AI-Powered Crystal Identification & Mystical Guidance</p>
-                </div>
-
-                <div class="auth-forms">
-                    <div class="auth-form">
-                        <h3>✨ Create Account</h3>
-                        <form onsubmit="event.preventDefault(); register();">
-                            <div class="form-group">
-                                <label>Email:</label>
-                                <input type="email" id="reg-email" placeholder="your@email.com" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Password:</label>
-                                <input type="password" id="reg-password" placeholder="Strong password" required>
-                            </div>
-                            <button type="submit" class="mystical-button">Create Account</button>
-                        </form>
-                    </div>
-
-                    <div class="auth-form">
-                        <h3>🔓 Sign In</h3>
-                        <form onsubmit="event.preventDefault(); login();">
-                            <div class="form-group">
-                                <label>Email:</label>
-                                <input type="email" id="login-email" placeholder="your@email.com" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Password:</label>
-                                <input type="password" id="login-password" placeholder="Your password" required>
-                            </div>
-                            <button type="submit" class="mystical-button">Sign In</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div id="auth-message"></div>
-
-                <div class="skip-auth-section">
-                    <h4>⚠️ Firebase Auth Not Configured Yet?</h4>
-                    <p>Try the app without authentication first:</p>
-                    <button onclick="skipAuth()" class="mystical-button" style="margin-top: 15px;">
-                        🚀 Skip Auth & Try App
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Application Section -->
-        <div id="app-section">
-            <div class="glassmorphic-container">
-                <div class="app-header">
-                    <h1 class="app-title">🔮 Crystal Grimoire</h1>
-                    <div class="user-info">
-                        <h3>Welcome, <span id="user-email"></span>! 🌟</h3>
-                        <div id="auth-status">Authenticated User</div>
-                        <button onclick="logout()" class="mystical-button" style="font-size: 14px; padding: 10px 20px;">Sign Out</button>
-                    </div>
-                </div>
-
-                <!-- Feature Grid -->
-                <div class="feature-grid">
-                    <div class="feature-card" onclick="alert('Crystal Identification coming soon!')">
-                        <span class="feature-icon">📸</span>
-                        <h3 class="feature-title">Crystal Identification</h3>
-                        <p class="feature-description">Upload photos of your crystals and let our AI identify them with detailed metaphysical properties.</p>
-                    </div>
-
-                    <div class="feature-card">
-                        <span class="feature-icon">🔮</span>
-                        <h3 class="feature-title">Mystical Guidance</h3>
-                        <p class="feature-description">Ask questions and receive personalized crystal recommendations based on your intentions and needs.</p>
-                    </div>
-
-                    <div class="feature-card" onclick="alert('Collection feature coming soon!')">
-                        <span class="feature-icon">💎</span>
-                        <h3 class="feature-title">Your Collection</h3>
-                        <p class="feature-description">Keep track of your crystal collection with photos, notes, and personalized insights.</p>
-                    </div>
-
-                    <div class="feature-card" onclick="alert('Moon Rituals coming soon!')">
-                        <span class="feature-icon">🌙</span>
-                        <h3 class="feature-title">Moon Rituals</h3>
-                        <p class="feature-description">Discover lunar-powered rituals and ceremonies aligned with current moon phases.</p>
-                    </div>
-
-                    <div class="feature-card" onclick="alert('Crystal Healing coming soon!')">
-                        <span class="feature-icon">✨</span>
-                        <h3 class="feature-title">Crystal Healing</h3>
-                        <p class="feature-description">AI-generated healing layouts and chakra alignment guides using your crystals.</p>
-                    </div>
-
-                    <div class="feature-card" onclick="alert('Dream Journal coming soon!')">
-                        <span class="feature-icon">💭</span>
-                        <h3 class="feature-title">Dream Journal</h3>
-                        <p class="feature-description">Record and analyze your dreams with crystal correlations and spiritual insights.</p>
-                    </div>
-                </div>
-
-                <!-- Crystal Guidance Form -->
-                <div class="glassmorphic-container">
-                    <h2 style="text-align: center; color: #E0AAFF; margin-bottom: 30px;">🔮 Ask for Crystal Guidance</h2>
-                    <form onsubmit="event.preventDefault(); getCrystalGuidance();">
-                        <div class="form-group">
-                            <label>Your Question:</label>
-                            <textarea id="question" placeholder="What crystal guidance do you seek? (e.g., 'What crystals can help me with meditation and inner peace?')" rows="3"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Your Intentions (comma-separated):</label>
-                            <input type="text" id="intentions" placeholder="meditation, healing, protection, love, abundance">
-                        </div>
-                        <div class="form-group">
-                            <label>Experience Level:</label>
-                            <select id="experience">
-                                <option value="beginner">Beginner - New to crystals</option>
-                                <option value="intermediate">Intermediate - Some experience</option>
-                                <option value="advanced">Advanced - Experienced practitioner</option>
-                            </select>
-                        </div>
-                        <div style="text-align: center;">
-                            <button type="submit" class="mystical-button" style="font-size: 18px; padding: 20px 40px;">✨ Receive Guidance</button>
-                        </div>
-                    </form>
-
-                    <div id="guidance-result"></div>
-                </div>
-            </div>
-        </div>
+  <div class="grain"></div>
+  <header class="site-header">
+    <div class="brand">
+      <span class="logo-orb"></span>
+      <div class="brand-text">
+        <p class="eyebrow">Clear Seas Solutions</p>
+        <p class="title">Crystal Grimoire</p>
+      </div>
     </div>
+    <nav class="main-nav" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#journey">Journey</a>
+      <a href="#beta">Beta</a>
+    </nav>
+    <a class="pill" href="#beta">Join the beta</a>
+  </header>
+
+  <main>
+    <section id="morphing-hero" aria-labelledby="hero-title">
+      <div class="pinned-viewport">
+        <div class="hero-bg" aria-hidden="true">
+          <img class="layer layer-back" src="assets/epitaxy/nebula-back.svg" alt="Aurora gradient nebula" loading="lazy" />
+          <img class="layer layer-mid" src="assets/epitaxy/lattice-mid.svg" alt="Lattice lines representing epitaxial growth" loading="lazy" />
+          <img class="layer layer-front" src="assets/epitaxy/shards-front.svg" alt="Crystalline shards" loading="lazy" />
+          <div class="color-wash"></div>
+        </div>
+        <div class="hero-content">
+          <div class="hero-copy">
+            <p class="eyebrow">Beta invite — pre-release</p>
+            <h1 id="hero-title">A holographic operating system for crystals, rituals, and lunar rhythm.</h1>
+            <p class="lede">Crystal Grimoire is an AI-powered mystical studio from Clear Seas Solutions (Paul Phillips) — crafted for neo-spiritual seekers who crave clarity, resonance, and gorgeous glassmorphic flow.</p>
+            <div class="hero-actions">
+              <a class="pill" href="#beta">Request early access</a>
+              <a class="ghost" href="https://crystal-grimoire-2025.web.app/" target="_blank" rel="noreferrer">Preview the app</a>
+            </div>
+            <div class="microcopy">Epitaxial growth meets soulful guidance — every layer aligned.</div>
+          </div>
+          <div class="hero-card" id="crystal-card" aria-label="Crystal oracle visualization">
+            <div class="card-glow"></div>
+            <canvas id="visualizer" aria-hidden="true"></canvas>
+            <div class="card-content">
+              <p class="eyebrow">Crystal Oracle</p>
+              <h2>Ask, reveal, align.</h2>
+              <p>Real-time Gemini guidance, moon rituals, dream analysis, and a living collection keeper — rendered in holographic light.</p>
+              <ul class="pill-list">
+                <li>AI crystal identification</li>
+                <li>Lunar ritual timing</li>
+                <li>Sound bath harmonics</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="section-header">
+        <p class="eyebrow">Mystical feature suite</p>
+        <h3>Designed for seekers, collectors, and ritualists</h3>
+        <p>Every surface glows with glassmorphic calm while AI orchestrates crystal guidance, lunar cadence, and sonic healing.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h4>AI Crystal Identification</h4>
+          <p>Gemini + Vision decode your crystal photos with 95%+ accuracy and return metaphysical pairings.</p>
+          <span class="tag">Guided insight</span>
+        </article>
+        <article class="feature-card">
+          <h4>Moon Rituals</h4>
+          <p>Real-time lunar phases, ceremonial prompts, and altar layouts that adapt to your intentions.</p>
+          <span class="tag">Lunar sync</span>
+        </article>
+        <article class="feature-card">
+          <h4>Dream Journal</h4>
+          <p>Nightly reflections turn into crystalline motifs with affirmations and crystal companions.</p>
+          <span class="tag">Oneiric AI</span>
+        </article>
+        <article class="feature-card">
+          <h4>Sound Bath Studio</h4>
+          <p>Crystal-matched frequencies and ambient pads that resonate with your chakra focus.</p>
+          <span class="tag">Harmonic field</span>
+        </article>
+        <article class="feature-card">
+          <h4>Collection Keeper</h4>
+          <p>Track specimens, cleansing rituals, and usage stats inside a living archive.</p>
+          <span class="tag">Catalog magic</span>
+        </article>
+        <article class="feature-card">
+          <h4>Marketplace Preview</h4>
+          <p>Pre-release marketplace surfaces trusted vendors and intention-based bundles.</p>
+          <span class="tag">Coming soon</span>
+        </article>
+      </div>
+    </section>
+
+    <section id="journey" class="section journey">
+      <div class="section-header">
+        <p class="eyebrow">Epitaxial growth arc</p>
+        <h3>Layer by layer, the experience crystallizes</h3>
+        <p>Follow the morphing journey as gradients shift from twilight violet to aurora mint, mirroring how new capabilities seed and align.</p>
+      </div>
+      <div class="journey-grid">
+        <div class="journey-step">
+          <div class="step-indicator">01</div>
+          <h4>Seed layer — Identification</h4>
+          <p>Precise crystal detection, holographic cards, and foundational rituals.</p>
+        </div>
+        <div class="journey-step">
+          <div class="step-indicator">02</div>
+          <h4>Epitaxy — Ritual intelligence</h4>
+          <p>Lunar scheduling, intention-aware recommendations, and sonic alchemy.</p>
+        </div>
+        <div class="journey-step">
+          <div class="step-indicator">03</div>
+          <h4>Growth — Community marketplaces</h4>
+          <p>Curated vendors, shared journeys, and co-created ceremonies.</p>
+        </div>
+        <div class="journey-step">
+          <div class="step-indicator">04</div>
+          <h4>Polish — Analytics & protection</h4>
+          <p>Usage insights, mindful privacy, and encrypted ritual history.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="beta" class="section beta">
+      <div class="beta-inner">
+        <div>
+          <p class="eyebrow">Personal note from Paul</p>
+          <h3>Clear Seas Solutions invites you to shape the beta.</h3>
+          <p>I’m Paul Phillips, a one-person studio building Crystal Grimoire as my first retail application. I’d love your eyes, your rituals, and your honest feedback to refine this mystical OS before launch.</p>
+          <ul class="pill-list">
+            <li>Exclusive beta builds</li>
+            <li>Direct founder feedback loop</li>
+            <li>Founding seeker recognition</li>
+          </ul>
+        </div>
+        <div class="beta-cta">
+          <form class="cta-form">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" placeholder="you@example.com" required />
+            <label for="intention">Intention</label>
+            <input id="intention" name="intention" type="text" placeholder="Crystal healing, dreamwork, lunar rituals..." />
+            <button type="submit" class="pill">Request beta invite</button>
+            <p class="microcopy">We’ll reach out with the next private build and a ritual starter kit.</p>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Crystal Grimoire — crafted with care by Clear Seas Solutions (Paul Phillips).</p>
+    <p class="microcopy">Hosted on Firebase. All rituals are optional; your data stays encrypted.</p>
+  </footer>
+
+  <script src="scripts/visualizer.js"></script>
+  <script src="scripts/main.js"></script>
 </body>
 </html>
