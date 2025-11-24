@@ -115,6 +115,15 @@ flutter build web --release --base-href="/"
 firebase deploy --only hosting,functions
 ```
 
+### GitHub Pages (static marketing site)
+The `public/` directory contains the static landing experience. A GitHub Actions workflow (`.github/workflows/gh-pages.yml`) uploads that directory as a Pages artifact and publishes it.
+
+1. In your repository settings, enable GitHub Pages and choose **GitHub Actions** as the source.
+2. Set the deployment branch to the branch you want (e.g., `work` for preview PRs or `main` for production) — the workflow triggers on both.
+3. Merge the branch; the action will build and deploy automatically. The published site will mirror the `public/` folder contents.
+
+> All assets use relative paths, so the page works whether it is served from the root domain or a Pages subpath.
+
 ### Environment Variables
 ```bash
 # Required in Firebase Functions config
