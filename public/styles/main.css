@@ -11,6 +11,8 @@
   --card-alpha: 0.65;
   --border: hsla(280, 80%, 80%, 0.35);
   --glow: 0 10px 80px rgba(120, 85, 255, 0.35);
+  --pointer-x: 50%;
+  --pointer-y: 50%;
 }
 
 * { box-sizing: border-box; }
@@ -72,7 +74,9 @@ a:hover { color: var(--mint); }
 .orbit-badge { padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: var(--holo); font-size: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
 .hero-copy h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: clamp(32px, 4vw, 48px); margin: 12px 0; line-height: 1.1; }
 .hero-actions { display: flex; gap: 12px; margin: 18px 0; flex-wrap: wrap; }
-.hero-card { position: relative; background: linear-gradient(160deg, hsla(var(--card-hue), 62%, 56%, 0.18), hsla(var(--card-hue), 58%, 34%, var(--card-alpha))), var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 24px; overflow: hidden; box-shadow: 0 20px 120px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08); backdrop-filter: blur(18px); min-height: 360px; isolation: isolate; transform: translateZ(50px); }
+.hero-card { position: relative; background: linear-gradient(160deg, hsla(var(--card-hue), 62%, 56%, 0.18), hsla(var(--card-hue), 58%, 34%, var(--card-alpha))), var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 24px; overflow: hidden; box-shadow: 0 20px 120px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08); backdrop-filter: blur(18px); min-height: 360px; isolation: isolate; transform: translateZ(50px); transition: box-shadow 0.3s ease; }
+.hero-card::after { content: ""; position: absolute; inset: -20%; background: radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(255,255,255,0.16), transparent 36%); mix-blend-mode: screen; opacity: 0.6; z-index: 2; pointer-events: none; transition: opacity 0.4s ease, transform 0.4s ease; }
+.hero-card:hover::after { opacity: 0.85; transform: scale(1.02); }
 .card-glow { position: absolute; inset: -30%; background: conic-gradient(from 120deg, rgba(82,32,255,0.25), rgba(85,255,211,0.28), rgba(82,32,255,0.18), rgba(199,183,255,0.28)); filter: blur(80px); opacity: 0.9; z-index: 1; animation: rotateGlow 22s linear infinite; }
 .hero-card canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; mix-blend-mode: screen; }
 .card-content { position: relative; z-index: 3; display: grid; gap: 8px; }

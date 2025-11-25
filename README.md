@@ -116,7 +116,19 @@ firebase deploy --only hosting,functions
 ```
 
 ### GitHub Pages (static marketing site)
-The `public/` directory contains the static landing experience. A GitHub Actions workflow (`.github/workflows/gh-pages.yml`) uploads that directory as a Pages artifact and publishes it.
+The `public/` directory contains the static landing experience, bundled with Vite to produce an optimized `dist/` output. The GitHub Actions workflow (`.github/workflows/gh-pages.yml`) installs dependencies, runs `npm run build`, and uploads the `dist/` folder as a Pages artifact.
+
+For local iteration on the holographic landing page:
+```bash
+# Install dependencies
+npm install
+
+# Run the Vite dev server on 0.0.0.0:4173 (for screenshots or device testing)
+npm run dev -- --host --port 4173
+
+# Build the production bundle consumed by GitHub Pages
+npm run build
+```
 
 1. In your repository settings, enable GitHub Pages and choose **GitHub Actions** as the source.
 2. Set the deployment branch to the branch you want (e.g., `work` for preview PRs or `main` for production) — the workflow triggers on both.
