@@ -121,6 +121,7 @@ The `public/` directory contains the static landing experience. A GitHub Actions
 1. In your repository settings, enable GitHub Pages and choose **GitHub Actions** as the source.
 2. Set the deployment branch to the branch you want (e.g., `work` for preview PRs or `main` for production) — the workflow triggers on both.
 3. Merge the branch; the action will build and deploy automatically. The published site will mirror the `public/` folder contents.
+4. If you instead point Pages to the branch **root** (without the Actions artifact), GitHub will try to render `README.md`. To cover that case, a lightweight `index.html` lives in the repo root and immediately redirects visitors to `./public/` so the marketing site loads either way.
 
 > All assets use relative paths, so the page works whether it is served from the root domain or a Pages subpath.
 
