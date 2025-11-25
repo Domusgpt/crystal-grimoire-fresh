@@ -7,6 +7,9 @@
     "lib": "lib"
   },
   "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -22,6 +25,10 @@
   },
   "homepage": "https://github.com/Domusgpt/crystal-grimoire-fresh#readme",
   "dependencies": {
-    "@google-cloud/vertexai": "^1.10.0"
+    "@google-cloud/vertexai": "^1.10.0",
+    "gsap": "^3.12.5"
+  },
+  "devDependencies": {
+    "vite": "^5.3.4"
   }
 }

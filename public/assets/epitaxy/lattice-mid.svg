@@ -1,0 +1,37 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="latticeStroke" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7bf3ff" stop-opacity="0.4"/>
+      <stop offset="50%" stop-color="#caa8ff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#52ffe2" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <g stroke="url(#latticeStroke)" stroke-width="1.4">
+    <path d="M120 120L1480 120" opacity="0.3"/>
+    <path d="M120 260L1480 260" opacity="0.35"/>
+    <path d="M120 400L1480 400" opacity="0.4"/>
+    <path d="M120 540L1480 540" opacity="0.45"/>
+    <path d="M120 680L1480 680" opacity="0.38"/>
+    <path d="M120 820L1480 820" opacity="0.3"/>
+    <path d="M220 80L220 840" opacity="0.35"/>
+    <path d="M520 80L520 840" opacity="0.5"/>
+    <path d="M820 80L820 840" opacity="0.55"/>
+    <path d="M1120 80L1120 840" opacity="0.5"/>
+    <path d="M1420 80L1420 840" opacity="0.35"/>
+  </g>
+  <g fill="url(#latticeStroke)">
+    <circle cx="220" cy="120" r="3"/>
+    <circle cx="520" cy="260" r="3.5"/>
+    <circle cx="820" cy="400" r="4"/>
+    <circle cx="1120" cy="540" r="3.5"/>
+    <circle cx="1420" cy="680" r="3"/>
+    <circle cx="820" cy="820" r="5" opacity="0.8"/>
+    <circle cx="420" cy="600" r="4.5" opacity="0.65"/>
+    <circle cx="1260" cy="300" r="4" opacity="0.7"/>
+  </g>
+  <g stroke="#7bf3ff" stroke-width="0.8" stroke-opacity="0.4">
+    <path d="M220 120L520 260L820 120L1120 260L1420 120"/>
+    <path d="M220 680L520 540L820 680L1120 540L1420 680" opacity="0.6"/>
+    <path d="M220 400L520 400L820 400L1120 400L1420 400" opacity="0.55"/>
+  </g>
+</svg>
