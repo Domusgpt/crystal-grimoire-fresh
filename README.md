@@ -127,7 +127,7 @@ The `public/` directory contains the static landing experience. A GitHub Actions
 
 #### Local preview + phased testing
 - Serve the static site locally: `python -m http.server 3000 --directory public` then visit `http://localhost:3000`.
-- Verify hero morphing journey: scroll the pinned hero to confirm the four epitaxial states and progress bar advance smoothly.
+- Verify hero morphing journey: scroll the pinned hero to confirm the four epitaxial states, the morphing card stack rotations, and the progress bar advancing smoothly over ~800vh.
 - Toggle “Reduce motion” in system accessibility settings to confirm pinned sections unpin and the canvas visualizer stays idle.
 - Inspect beta form validation (required email) and CTA microcopy update after submit.
 

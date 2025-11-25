@@ -28,11 +28,14 @@
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
 
+    const card = canvas.closest('.hero-card');
+    const baseHue = card ? Number(getComputedStyle(card).getPropertyValue('--card-hue')) || 240 : 240;
+
     // Holographic gradient
     const gradient = ctx.createLinearGradient(0, 0, w, h);
-    gradient.addColorStop(0, `hsla(${220 + Math.sin(elapsed) * 20}, 90%, 70%, 0.45)`);
-    gradient.addColorStop(0.5, `hsla(${180 + Math.sin(elapsed * 1.2) * 40}, 90%, 75%, 0.55)`);
-    gradient.addColorStop(1, `hsla(${280 + Math.cos(elapsed * 0.8) * 30}, 95%, 80%, 0.4)`);
+    gradient.addColorStop(0, `hsla(${baseHue + Math.sin(elapsed) * 20}, 90%, 70%, 0.45)`);
+    gradient.addColorStop(0.5, `hsla(${baseHue - 40 + Math.sin(elapsed * 1.2) * 40}, 90%, 75%, 0.55)`);
+    gradient.addColorStop(1, `hsla(${baseHue + 60 + Math.cos(elapsed * 0.8) * 30}, 95%, 80%, 0.4)`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
