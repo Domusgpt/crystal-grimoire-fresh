@@ -1,0 +1,25 @@
+<svg width="900" height="1600" viewBox="0 0 900 1600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0e2a" />
+      <stop offset="1" stop-color="#9b7bff" stop-opacity="0.9" />
+    </linearGradient>
+    <radialGradient id="aura" cx="50%" cy="45%" r="45%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="900" height="1600" rx="48" fill="url(#bg)" />
+  <circle cx="450" cy="480" r="300" fill="url(#aura)" />
+  <text x="180" y="360" fill="#f6f9ff" font-size="38" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="700">Sound bath studio</text>
+  <text x="180" y="410" fill="#f6f9ff" font-size="24" font-family="'Inter', sans-serif" opacity="0.9">Crystal-matched harmonics</text>
+  <rect x="190" y="480" width="520" height="120" rx="28" fill="#0f1433" fill-opacity="0.55" stroke="#d5c6ff" stroke-opacity="0.36" />
+  <rect x="190" y="630" width="520" height="120" rx="28" fill="#0f1433" fill-opacity="0.5" stroke="#9fe7ff" stroke-opacity="0.34" />
+  <rect x="190" y="780" width="520" height="120" rx="28" fill="#0f1433" fill-opacity="0.45" stroke="#ffffff" stroke-opacity="0.2" />
+  <rect x="210" y="960" width="500" height="440" rx="46" fill="#0c1029" fill-opacity="0.55" stroke="#ffffff" stroke-opacity="0.22" />
+  <text x="240" y="1030" fill="#f6f9ff" font-size="30" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="600">Frequency mixer</text>
+  <text x="240" y="1080" fill="#f6f9ff" font-size="20" font-family="'Inter', sans-serif" opacity="0.85">Root → Crown chakra harmonics</text>
+  <line x1="260" y1="1160" x2="640" y2="1160" stroke="#c3b7ff" stroke-width="6" stroke-opacity="0.6" />
+  <rect x="280" y="1240" width="340" height="70" rx="22" fill="#ffffff" fill-opacity="0.08" stroke="#d5c6ff" stroke-opacity="0.8" />
+  <text x="300" y="1285" fill="#f6f9ff" font-size="20" font-family="'Inter', sans-serif" opacity="0.85">Generate binaural pads</text>
+</svg>

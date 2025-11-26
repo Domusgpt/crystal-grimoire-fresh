@@ -1,0 +1,27 @@
+<svg width="900" height="1600" viewBox="0 0 900 1600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1f3f" />
+      <stop offset="1" stop-color="#0fd7ff" stop-opacity="0.8" />
+    </linearGradient>
+    <radialGradient id="moon" cx="50%" cy="30%" r="30%">
+      <stop offset="0" stop-color="#f6f9ff" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#f6f9ff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="900" height="1600" rx="48" fill="url(#bg)" />
+  <circle cx="450" cy="360" r="210" fill="url(#moon)" />
+  <text x="180" y="360" fill="#f6f9ff" font-size="38" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="700">Lunar ritual</text>
+  <text x="180" y="410" fill="#f6f9ff" font-size="24" font-family="'Inter', sans-serif" opacity="0.9">Phase timing + altar layout</text>
+  <rect x="170" y="470" width="560" height="96" rx="22" fill="#0d112e" fill-opacity="0.6" stroke="#9fe7ff" stroke-opacity="0.4" />
+  <rect x="170" y="600" width="560" height="96" rx="22" fill="#0d112e" fill-opacity="0.55" stroke="#d1c2ff" stroke-opacity="0.38" />
+  <rect x="170" y="730" width="560" height="96" rx="22" fill="#0d112e" fill-opacity="0.5" stroke="#ffffff" stroke-opacity="0.24" />
+  <rect x="170" y="880" width="560" height="520" rx="42" fill="#0b0f29" fill-opacity="0.55" stroke="#ffffff" stroke-opacity="0.2" />
+  <text x="210" y="950" fill="#f6f9ff" font-size="30" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="600">Intention flow</text>
+  <text x="210" y="1000" fill="#f6f9ff" font-size="20" font-family="'Inter', sans-serif" opacity="0.85">Cleanse → Charge → Anchor</text>
+  <line x1="240" y1="1080" x2="660" y2="1080" stroke="#9fe7ff" stroke-width="4" stroke-opacity="0.5" />
+  <circle cx="280" cy="1080" r="22" fill="#ffffff" fill-opacity="0.15" stroke="#9fe7ff" stroke-opacity="0.8" />
+  <circle cx="470" cy="1080" r="22" fill="#ffffff" fill-opacity="0.12" stroke="#d1c2ff" stroke-opacity="0.8" />
+  <circle cx="640" cy="1080" r="22" fill="#ffffff" fill-opacity="0.1" stroke="#9fe7ff" stroke-opacity="0.8" />
+  <text x="260" y="1180" fill="#f6f9ff" font-size="20" font-family="'Inter', sans-serif" opacity="0.85">Moon phase cues + altar lighting gradients.</text>
+</svg>

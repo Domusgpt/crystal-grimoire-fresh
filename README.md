@@ -115,6 +115,36 @@ flutter build web --release --base-href="/"
 firebase deploy --only hosting,functions
 ```
 
+### GitHub Pages (static marketing site)
+The `public/` directory contains the static landing experience, bundled with Vite to produce an optimized `dist/` output. The GitHub Actions workflow (`.github/workflows/gh-pages.yml`) installs dependencies, runs `npm run build`, and uploads the `dist/` folder as a Pages artifact.
+
+For local iteration on the holographic landing page:
+```bash
+# Install dependencies
+npm install
+
+# Run the Vite dev server on 0.0.0.0:4173 (for screenshots or device testing)
+npm run dev -- --host --port 4173
+
+# Build the production bundle consumed by GitHub Pages
+npm run build
+```
+
+1. In your repository settings, enable GitHub Pages and choose **GitHub Actions** as the source.
+2. Set the deployment branch to the branch you want (e.g., `work` for preview PRs or `main` for production) — the workflow triggers on both.
+3. Merge the branch; the action will build and deploy automatically. The published site will mirror the `public/` folder contents.
+4. If you instead point Pages to the branch **root** (without the Actions artifact), GitHub will try to render `README.md`. To cover that case, a lightweight `index.html` lives in the repo root and immediately redirects visitors to `./public/` so the marketing site loads either way.
+
+> All assets use relative paths, so the page works whether it is served from the root domain or a Pages subpath.
+
+#### Local preview + phased testing
+- Serve the static site locally: `python -m http.server 3000 --directory public` then visit `http://localhost:3000`.
+- Verify hero morphing journey: scroll the pinned hero to confirm the four epitaxial states, the morphing card stack rotations, and the progress bar advancing smoothly over ~800vh.
+- Toggle “Reduce motion” in system accessibility settings to confirm pinned sections unpin and the canvas visualizer stays idle.
+- Inspect beta form validation (required email) and CTA microcopy update after submit.
+- Walk through the new multi-zone parallax scaffold: ascent (upward drift), gallery (downward drift), features, and journey/beta zones. Confirm opposing parallax directions and pinned stretches behave without stutter.
+- Gallery assets now live in `public/assets/app-shots/` (SVG placeholders): oracle home, lunar ritual, collection vault, and sound bath. Validate lazy loading and hover tilts on desktop.
+
 ### Environment Variables
 ```bash
 # Required in Firebase Functions config
