@@ -1,0 +1,27 @@
+<svg width="900" height="1600" viewBox="0 0 900 1600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6f5bff" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#46ffd0" stop-opacity="0.85" />
+    </linearGradient>
+    <radialGradient id="orb" cx="50%" cy="35%" r="45%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="900" height="1600" rx="48" fill="url(#bg)" />
+  <circle cx="450" cy="430" r="280" fill="url(#orb)" />
+  <rect x="140" y="340" width="620" height="340" rx="32" fill="#0b0c23" fill-opacity="0.35" stroke="#c7bfff" stroke-opacity="0.25" />
+  <text x="180" y="420" fill="#e8f7ff" font-size="42" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="700">Oracle home</text>
+  <text x="180" y="480" fill="#e8f7ff" font-size="26" font-family="'Inter', sans-serif" opacity="0.9">Ask, reveal, align.</text>
+  <rect x="180" y="540" width="520" height="70" rx="18" fill="#10132f" fill-opacity="0.45" stroke="#8cf0ff" stroke-opacity="0.5" />
+  <rect x="180" y="640" width="520" height="70" rx="18" fill="#10132f" fill-opacity="0.45" stroke="#b0b0ff" stroke-opacity="0.4" />
+  <rect x="180" y="740" width="520" height="70" rx="18" fill="#10132f" fill-opacity="0.45" stroke="#ffffff" stroke-opacity="0.18" />
+  <rect x="200" y="900" width="500" height="520" rx="42" fill="#0c1028" fill-opacity="0.5" stroke="#ffffff" stroke-opacity="0.22" />
+  <text x="240" y="980" fill="#e8f7ff" font-size="34" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="600">Epitaxial stages</text>
+  <text x="240" y="1036" fill="#e8f7ff" font-size="22" font-family="'Inter', sans-serif" opacity="0.8">Seed → Epitaxy → Growth → Radiance</text>
+  <circle cx="300" cy="1140" r="56" fill="#ffffff" fill-opacity="0.1" stroke="#b8ffec" stroke-opacity="0.6" />
+  <circle cx="460" cy="1140" r="56" fill="#ffffff" fill-opacity="0.08" stroke="#c7bfff" stroke-opacity="0.6" />
+  <circle cx="620" cy="1140" r="56" fill="#ffffff" fill-opacity="0.06" stroke="#c0f0ff" stroke-opacity="0.6" />
+  <text x="260" y="1290" fill="#e8f7ff" font-size="20" font-family="'Inter', sans-serif" opacity="0.85">Gemini + Vision guidance, lunar sync, rituals.</text>
+</svg>
