@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🔮 Crystal Grimoire - AI-Powered Crystal Identification</title>
+    <link rel="stylesheet" href="/styles/main.css">
     
     <!-- Firebase SDKs -->
     <script type="module">
@@ -663,7 +664,117 @@
 </head>
 <body>
     <div id="floating-crystals"></div>
-    
+
+    <section id="morphing-hero" class="scroll-journey">
+        <div class="chapter-heading">
+            <h2>Morphing Hero Journey</h2>
+            <p>Follow the ascent, summit, and return of our crystal guide.</p>
+        </div>
+
+        <div class="zone-map">
+            <div class="zone-chip" data-zone-chip="Intro">Intro</div>
+            <div class="zone-chip" data-zone-chip="Ascent">Ascent</div>
+            <div class="zone-chip" data-zone-chip="Summit">Summit</div>
+            <div class="zone-chip" data-zone-chip="Descent">Descent</div>
+            <div class="zone-chip" data-zone-chip="Landing">Landing</div>
+        </div>
+
+        <section class="zone-panel" id="intro-zone" data-zone="intro">
+            <div class="zone-media">
+                <canvas class="parallax-canvas background-canvas" aria-hidden="true"></canvas>
+                <canvas class="parallax-canvas foreground-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="zone-content">
+                <div class="zone-label">✨ Introduction</div>
+                <h3 class="zone-title">Where curiosity awakens</h3>
+                <div class="zone-copy">
+                    Begin the journey with a calm drift that establishes the hero state. This intro zone anchors the experience
+                    before ScrollTrigger pins the ascent and hands control to the chaptered timelines.
+                </div>
+                <div class="zone-meta">
+                    <span>Gentle parallax</span>
+                    <span>Pinned entry</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="zone-panel" id="ascent-zone" data-zone="ascent">
+            <div class="zone-media">
+                <canvas class="parallax-canvas background-canvas" aria-hidden="true"></canvas>
+                <canvas class="parallax-canvas foreground-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="zone-content">
+                <div class="zone-label">🪄 Ascent</div>
+                <h3 class="zone-title">Rising through crystalline mist</h3>
+                <div class="zone-copy">
+                    Foreground shards accelerate upward while the background glides in the opposite direction, creating the
+                    feeling of climbing through layered magic.
+                </div>
+                <div class="zone-meta">
+                    <span>Opposing velocities</span>
+                    <span>Pinned climb</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="zone-panel" id="summit-zone" data-zone="summit">
+            <div class="zone-media">
+                <canvas class="parallax-canvas background-canvas" aria-hidden="true"></canvas>
+                <canvas class="parallax-canvas foreground-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="zone-content">
+                <div class="zone-label">⛰️ Summit</div>
+                <h3 class="zone-title">Suspended at the apex</h3>
+                <div class="zone-copy">
+                    A calmer drift holds the hero at the peak. Subtle counter-motion keeps the scene alive while the timeline
+                    waits for the descent trigger.
+                </div>
+                <div class="zone-meta">
+                    <span>Balanced parallax</span>
+                    <span>Soft pin</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="zone-panel" id="descent-zone" data-zone="descent">
+            <div class="zone-media">
+                <canvas class="parallax-canvas background-canvas" aria-hidden="true"></canvas>
+                <canvas class="parallax-canvas foreground-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="zone-content">
+                <div class="zone-label">🌠 Descent</div>
+                <h3 class="zone-title">Falling with intention</h3>
+                <div class="zone-copy">
+                    ScrollTrigger reverses the opposing drift: the foreground eases downward as the background rises, signaling
+                    a graceful return from the summit.
+                </div>
+                <div class="zone-meta">
+                    <span>Opposing velocities</span>
+                    <span>Pinned glide</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="zone-panel" id="landing-zone" data-zone="landing">
+            <div class="zone-media">
+                <canvas class="parallax-canvas background-canvas" aria-hidden="true"></canvas>
+                <canvas class="parallax-canvas foreground-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="zone-content">
+                <div class="zone-label">🏁 Landing</div>
+                <h3 class="zone-title">Touchdown into guidance</h3>
+                <div class="zone-copy">
+                    The pin releases into free scroll, letting the motion settle as visitors transition into the product
+                    experience below.
+                </div>
+                <div class="zone-meta">
+                    <span>Free scroll</span>
+                    <span>Handoff state</span>
+                </div>
+            </div>
+        </section>
+    </section>
+
     <div class="container">
         <!-- Authentication Section -->
         <div id="auth-section">
@@ -798,5 +909,6 @@
             </div>
         </div>
     </div>
+    <script type="module" src="/src/main.js"></script>
 </body>
 </html>
