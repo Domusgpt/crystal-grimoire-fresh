@@ -106,6 +106,14 @@ firebase deploy --only storage
 
 ---
 
+## 🌐 Marketing Site / GitHub Pages Workflow
+
+- The marketing bundle is built from the static assets in `public/`.
+- Run `npm run build` to copy those assets into `dist/` for the Pages artifact.
+- The dependency footprint for this workflow is intentionally minimal (no `@google-cloud/vertexai`) to keep `npm ci` and build steps light.
+
+---
+
 ## 🛠️ REQUIRED CONFIGURATIONS
 
 ### Firebase Configuration (firebase.json)
