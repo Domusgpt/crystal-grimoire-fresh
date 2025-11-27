@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🔮 Crystal Grimoire - AI-Powered Crystal Identification</title>
-    
+    <link rel="stylesheet" href="styles/main.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
@@ -768,6 +770,41 @@
                     </div>
                 </div>
 
+                <!-- Preview Section -->
+                <section class="glassmorphic-container preview-section" id="preview-section">
+                    <div class="preview-header">
+                        <p class="preview-kicker">Preview</p>
+                        <h3 class="preview-title">See Crystal Grimoire in action</h3>
+                        <p class="preview-subtitle">Walk through the latest experience shots to understand how the guidance flow, dashboards, and rituals come together in the glassy UI.</p>
+                    </div>
+
+                    <div class="preview-gallery carousel-mode" id="preview-gallery">
+                        <figure class="preview-card" data-depth="1">
+                            <img src="assets/app-shots/dashboard-overview.svg" alt="Dashboard overview illustration with shimmering widgets" loading="lazy" class="preview-image">
+                            <figcaption class="preview-caption">
+                                <span>Crystal dashboard overview</span>
+                                <span class="preview-meta">Live insights</span>
+                            </figcaption>
+                        </figure>
+
+                        <figure class="preview-card" data-depth="1.2">
+                            <img src="assets/app-shots/guidance-flow.svg" alt="Guidance flow illustration showing question prompts and recommendations" loading="lazy" class="preview-image">
+                            <figcaption class="preview-caption">
+                                <span>Guidance flow snapshots</span>
+                                <span class="preview-meta">Adaptive prompts</span>
+                            </figcaption>
+                        </figure>
+
+                        <figure class="preview-card" data-depth="1.4">
+                            <img src="assets/app-shots/ritual-planner.svg" alt="Ritual planner timeline and callouts illustration" loading="lazy" class="preview-image">
+                            <figcaption class="preview-caption">
+                                <span>Ritual planner & cadence</span>
+                                <span class="preview-meta">Lunar ready</span>
+                            </figcaption>
+                        </figure>
+                    </div>
+                </section>
+
                 <!-- Crystal Guidance Form -->
                 <div class="glassmorphic-container">
                     <h2 style="text-align: center; color: #E0AAFF; margin-bottom: 30px;">🔮 Ask for Crystal Guidance</h2>
@@ -798,5 +835,45 @@
             </div>
         </div>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const gallery = document.getElementById('preview-gallery');
+            const cards = Array.from(document.querySelectorAll('.preview-card'));
+
+            if (!prefersReducedMotion && typeof gsap !== 'undefined') {
+                cards.forEach((card) => {
+                    const depth = parseFloat(card.dataset.depth || '1');
+                    const tilt = (event) => {
+                        const rect = card.getBoundingClientRect();
+                        const x = event.clientX - rect.left;
+                        const y = event.clientY - rect.top;
+                        const rotateY = ((x / rect.width) - 0.5) * 10 * depth;
+                        const rotateX = ((y / rect.height) - 0.5) * -8 * depth;
+                        gsap.to(card, { duration: 0.6, rotateY, rotateX, z: 18 * depth, ease: 'power3.out' });
+                    };
+
+                    const resetTilt = () => gsap.to(card, { duration: 0.7, rotateY: 0, rotateX: 0, z: 0, ease: 'power3.out' });
+
+                    card.addEventListener('mousemove', tilt);
+                    card.addEventListener('mouseleave', resetTilt);
+                });
+
+                if (gallery) {
+                    const quickSetters = cards.map((card) => gsap.quickTo(card, 'y', { duration: 0.5, ease: 'power2.out' }));
+                    const swayCards = () => {
+                        const progress = gallery.scrollLeft / Math.max(1, gallery.scrollWidth - gallery.clientWidth);
+                        cards.forEach((card, index) => {
+                            const sway = (index % 2 === 0 ? 1 : -1) * progress * 14 * (parseFloat(card.dataset.depth || '1'));
+                            quickSetters[index](sway);
+                        });
+                    };
+
+                    gallery.addEventListener('scroll', swayCards);
+                    swayCards();
+                }
+            }
+        });
+    </script>
 </body>
 </html>
