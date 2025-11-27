@@ -1,0 +1,70 @@
+<svg width="1200" height="750" viewBox="0 0 1200 750" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Crystal Grimoire guidance flow illustration</title>
+  <desc id="desc">Abstract flow of prompts, recommendations, and affirmation callouts rendered in a layered glassmorphic style.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#120a24" />
+      <stop offset="60%" stop-color="#1e1037" />
+      <stop offset="100%" stop-color="#0c0818" />
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#6b21a8" stop-opacity="0.22" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.85" />
+    </linearGradient>
+    <filter id="blur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="36" />
+    </filter>
+  </defs>
+  <rect width="1200" height="750" fill="url(#bg)" />
+  <ellipse cx="300" cy="160" rx="200" ry="140" fill="#7c3aed" opacity="0.2" filter="url(#blur)" />
+  <ellipse cx="960" cy="200" rx="180" ry="120" fill="#22d3ee" opacity="0.2" filter="url(#blur)" />
+  <g transform="translate(90 120)" font-family="'Inter', 'Segoe UI', sans-serif">
+    <text x="0" y="10" font-size="16" fill="#cbd5ff" opacity="0.8">Crystal Grimoire</text>
+    <text x="0" y="46" font-size="32" font-weight="700" fill="#f1e9ff">Guidance Flow</text>
+    <text x="0" y="76" font-size="18" fill="#d3c7ff" opacity="0.85">From question prompts to crystal recommendations and affirmations.</text>
+  </g>
+  <g transform="translate(120 170)">
+    <rect x="0" y="80" width="960" height="460" rx="26" fill="url(#panel)" stroke="rgba(255,255,255,0.16)" />
+    <g transform="translate(36 110)">
+      <rect x="0" y="0" width="240" height="160" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)" />
+      <text x="20" y="36" font-size="17" fill="#f5e8ff">Prompt</text>
+      <text x="20" y="64" font-size="14" fill="#d8c5ff" opacity="0.85">What crystal supports focus?</text>
+      <rect x="20" y="90" width="200" height="10" rx="5" fill="#22d3ee" opacity="0.5" />
+      <rect x="20" y="110" width="140" height="10" rx="5" fill="#a855f7" opacity="0.65" />
+    </g>
+    <g transform="translate(310 110)">
+      <rect x="0" y="0" width="280" height="160" rx="20" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.16)" />
+      <text x="20" y="36" font-size="17" fill="#f5e8ff">Crystal picks</text>
+      <rect x="20" y="60" width="240" height="16" rx="8" fill="url(#accent)" />
+      <rect x="20" y="86" width="210" height="14" rx="7" fill="#c4b5fd" opacity="0.7" />
+      <rect x="20" y="110" width="180" height="12" rx="6" fill="#a78bfa" opacity="0.7" />
+    </g>
+    <g transform="translate(640 110)">
+      <rect x="0" y="0" width="260" height="160" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)" />
+      <text x="20" y="36" font-size="17" fill="#f5e8ff">Affirmation</text>
+      <rect x="20" y="64" width="200" height="12" rx="6" fill="#22d3ee" opacity="0.55" />
+      <rect x="20" y="86" width="160" height="12" rx="6" fill="#c084fc" opacity="0.65" />
+      <rect x="20" y="108" width="140" height="12" rx="6" fill="#e9d5ff" opacity="0.7" />
+    </g>
+    <g transform="translate(70 330)">
+      <rect x="0" y="0" width="380" height="150" rx="22" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.15)" />
+      <text x="24" y="40" font-size="17" fill="#f5e8ff">Adaptive prompts</text>
+      <polyline points="24,78 120,66 200,92 320,62 350,82" fill="none" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
+      <circle cx="120" cy="66" r="5" fill="#e0f2fe" />
+      <circle cx="320" cy="62" r="5" fill="#e0f2fe" />
+    </g>
+    <g transform="translate(500 330)">
+      <rect x="0" y="0" width="440" height="150" rx="22" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.15)" />
+      <text x="26" y="40" font-size="17" fill="#f5e8ff">Recommendations</text>
+      <rect x="26" y="64" width="160" height="14" rx="7" fill="#c084fc" opacity="0.8" />
+      <rect x="26" y="88" width="200" height="12" rx="6" fill="#22d3ee" opacity="0.6" />
+      <rect x="26" y="110" width="240" height="12" rx="6" fill="#a855f7" opacity="0.65" />
+    </g>
+    <path d="M276 210 C330 240, 380 240, 440 210" fill="none" stroke="#22d3ee" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" />
+    <path d="M596 210 C650 240, 700 240, 760 210" fill="none" stroke="#c084fc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.65" />
+  </g>
+</svg>
