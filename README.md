@@ -143,6 +143,7 @@ npm run build
 - Toggle “Reduce motion” in system accessibility settings to confirm pinned sections unpin and the canvas visualizer stays idle.
 - Inspect beta form validation (required email) and CTA microcopy update after submit.
 - Walk through the new multi-zone parallax scaffold: ascent (upward drift), gallery (downward drift), features, and journey/beta zones. Confirm opposing parallax directions and pinned stretches behave without stutter.
+- Scroll the **Polytopal switchback** chapter: the pinned rail should let the track cards fade/tilt in sequence while halo/shard backgrounds move in opposite directions and the visualizer shimmer shifts with progress.
 - Gallery assets now live in `public/assets/app-shots/` (SVG placeholders): oracle home, lunar ritual, collection vault, and sound bath. Validate lazy loading and hover tilts on desktop.
 
 ### Environment Variables

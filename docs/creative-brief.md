@@ -23,6 +23,7 @@
 - `public/assets/epitaxy/lattice-mid.svg` — epitaxial lattice lines and orbs for mid-layer parallax.
 - `public/assets/epitaxy/shards-front.svg` — crystalline shards for foreground parallax.
 - `public/assets/app-shots/` — SVG preview placeholders for oracle home, lunar ritual, collection vault, and sound bath (used in gallery parallax).
+- `public/assets/polytopal/prism-cluster.svg` and `public/assets/polytopal/halo-rings.svg` — polytopal shards and concentric halos for the switchback zone.
 
 ## Scroll + animation architecture
 - Pinned hero (`#morphing-hero`) runs a GSAP timeline (`heroTl`) over ~8000px (~800vh) with 3 color states and SVG morph opacity/blur shifts.
@@ -31,6 +32,7 @@
 
 ## Narrative structure
 1. **Hero**: Beta invite, morphing epitaxy backdrop, holographic card/visualizer.
-2. **Highlights**: AI crystal identification, rituals, sound bath, dream journal, lunar intelligence.
-3. **Journey**: Scroll vignette describing epitaxial growth metaphor for the product roadmap.
-4. **Founder note**: Paul Phillips / Clear Seas Solutions personal invite with CTA.
+2. **Polytopal switchback**: Pinned rail with counter-parallax layers inspired by the Domus polytopal reference; hue tweaks feed the visualizer.
+3. **Highlights**: AI crystal identification, rituals, sound bath, dream journal, lunar intelligence.
+4. **Journey**: Scroll vignette describing epitaxial growth metaphor for the product roadmap.
+5. **Founder note**: Paul Phillips / Clear Seas Solutions personal invite with CTA.

@@ -17,6 +17,9 @@ const heroCard = document.getElementById('crystal-card');
 const morphCards = gsap.utils.toArray('.morph-card');
 const journeySteps = gsap.utils.toArray('.journey-step');
 const featureCards = gsap.utils.toArray('.feature-card');
+const trackCards = gsap.utils.toArray('.track-card');
+const polytopalZone = document.getElementById('polytopal');
+const polytopalTrack = document.querySelector('.polytopal-track');
 const stateMarkers = gsap.utils.toArray('.hero-state');
 const stateBarFill = document.querySelector('.hero-progress .fill');
 const orbitBadges = gsap.utils.toArray('.orbit-badge');
@@ -241,6 +244,10 @@ function setupReducedMotionFallbacks() {
       step.style.opacity = '1';
       step.style.transform = 'none';
     });
+    trackCards.forEach((card) => {
+      card.style.opacity = '1';
+      card.style.transform = 'none';
+    });
   }
 }
 
@@ -272,6 +279,48 @@ function setupFeatureAndJourneyAnimations() {
         start: 'top 80%',
       },
     });
+  });
+}
+
+function setupPolytopalTrack() {
+  if (!polytopalZone || !polytopalTrack || prefersReducedMotion) return;
+
+  const tl = gsap.timeline({
+    defaults: { ease: 'power2.inOut' },
+    scrollTrigger: {
+      trigger: polytopalZone,
+      start: 'top top',
+      end: () => `+=${Math.round(window.innerHeight * 1.6)}`,
+      scrub: true,
+      pin: polytopalTrack,
+      anticipatePin: 1,
+    },
+  });
+
+  trackCards.forEach((card, idx) => {
+    tl.fromTo(
+      card,
+      { opacity: 0.2, y: 40, rotateX: 8, rotateY: -6 },
+      { opacity: 1, y: -6 * idx, rotateX: 0, rotateY: 0, duration: 0.9 },
+      idx * 0.4,
+    );
+  });
+
+  tl.to(
+    '.polytopal-bg .wash-iris',
+    { opacity: 0.6, filter: 'blur(70px)', rotate: '+=20deg' },
+    0,
+  );
+  tl.to(
+    '.polytopal-bg .wash-mint',
+    { opacity: 0.55, filter: 'blur(60px)', rotate: '-=18deg' },
+    0.25,
+  );
+
+  tl.eventCallback('onUpdate', (self) => {
+    const shimmer = 0.9 + self.progress * 0.6;
+    const warp = 0.5 + self.progress * 0.4;
+    visualizerControl?.tune({ shimmer, warp });
   });
 }
 
@@ -391,6 +440,32 @@ function setupHeroMicroReactions() {
   heroCard.addEventListener('pointerleave', handleLeave);
 }
 
+function setupTrackMicroreactions() {
+  if (prefersReducedMotion) return;
+
+  trackCards.forEach((card) => {
+    const tiltX = gsap.quickTo(card, 'rotateX', { duration: 0.5, ease: 'power2.out' });
+    const tiltY = gsap.quickTo(card, 'rotateY', { duration: 0.5, ease: 'power2.out' });
+
+    card.addEventListener('pointermove', (event) => {
+      const rect = card.getBoundingClientRect();
+      const xr = (event.clientX - rect.left) / rect.width - 0.5;
+      const yr = (event.clientY - rect.top) / rect.height - 0.5;
+      tiltX(yr * -10);
+      tiltY(xr * 10);
+      card.style.setProperty('--pointer-x', `${(xr + 0.5) * 100}%`);
+      card.style.setProperty('--pointer-y', `${(yr + 0.5) * 100}%`);
+    });
+
+    card.addEventListener('pointerleave', () => {
+      tiltX(0);
+      tiltY(0);
+      card.style.setProperty('--pointer-x', '50%');
+      card.style.setProperty('--pointer-y', '50%');
+    });
+  });
+}
+
 function setupCTAForm() {
   const ctaForm = document.querySelector('.cta-form');
   if (!ctaForm) return;
@@ -407,11 +482,13 @@ function setupCTAForm() {
 
 setupHero();
 setupParallaxZones();
+setupPolytopalTrack();
 setupHeroCopyEntrance();
 setupFeatureAndJourneyAnimations();
 setupReducedMotionFallbacks();
 setupVisualizerScrollLifecycle();
 setupScrollStates();
 setupHeroMicroReactions();
+setupTrackMicroreactions();
 setupCTAForm();
 setupGalleryReactions();
