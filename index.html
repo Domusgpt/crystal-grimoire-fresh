@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crystal Grimoire Landing</title>
+  <meta http-equiv="refresh" content="0; url=./public/">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #dbe5ff;
+      background: radial-gradient(circle at 20% 20%, rgba(158, 123, 255, 0.16), transparent 35%),
+                  radial-gradient(circle at 80% 10%, rgba(92, 240, 255, 0.14), transparent 30%),
+                  radial-gradient(circle at 50% 80%, rgba(255, 190, 240, 0.12), transparent 35%),
+                  #0b0c14;
+      text-align: center;
+      padding: 2rem;
+    }
+    .card {
+      max-width: 32rem;
+      padding: 1.5rem;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 25px 80px rgba(65, 88, 208, 0.28);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    a {
+      color: #b1d9ff;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+  </style>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const target = new URL('./public/', window.location.href);
+      // Use replace so "back" behaves like a single navigation
+      window.location.replace(target);
+    });
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1>Redirecting to the new landing experience…</h1>
+    <p>If you are not redirected automatically, <a href="./public/">open the marketing site here</a>.</p>
+    <p>This file ensures GitHub Pages loads the marketing site even when the branch root is selected as the Pages source.</p>
+  </div>
+</body>
+</html>
